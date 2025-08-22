@@ -1,6 +1,6 @@
 # Dependencias
 node_modules/
-
+src/lib/firebase.js
 # Build
 dist/
 
