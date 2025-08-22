@@ -4,14 +4,15 @@ import { getAuth, isSignInWithEmailLink, sendSignInLinkToEmail, signInWithEmailL
 import { getFirestore, collection, query, where, orderBy, limit, getDocs, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore'
 
 // TODO: reemplaza con tus variables de entorno en producción
+
 const firebaseConfig = {
-  apiKey: "AIzaSyA6wc4XhjdrEDbc__ilNzPV6tpz-pKLjBY",
-  authDomain: "donaciones-9601c.firebaseapp.com",
-  projectId: "donaciones-9601c",
-  storageBucket: "donaciones-9601c.firebasestorage.app",
-  messagingSenderId: "425988619412",
-  appId: "1:425988619412:web:773f24f876be3821e70881",
-  measurementId: "G-L0DHFGKT6X"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_measurementId,
 }
 
 export const app = initializeApp(firebaseConfig)
