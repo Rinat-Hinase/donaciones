@@ -130,3 +130,26 @@ export async function deleteExpense(id) {
     actualizado_en: serverTimestamp(),
   });
 }
+// Total de gastos (paginado, suma en servidor)
+export async function getExpensesTotal({ campanaId, pageSize = 200 }) {
+  const ref = collection(db, 'gastos');
+  const filters = [ where('campana_id','==',campanaId), where('estado','==','activo') ];
+
+  let sum = 0;
+  let cursor = null;
+
+  while (true) {
+    let q = query(ref, ...filters, orderBy('creado_en','desc'), limit(pageSize));
+    if (cursor) q = query(ref, ...filters, orderBy('creado_en','desc'), startAfter(cursor), limit(pageSize));
+
+    const snap = await getDocs(q);
+    if (snap.empty) break;
+
+    for (const d of snap.docs) sum += Number(d.data().monto) || 0;
+
+    cursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    if (!cursor) break;
+  }
+
+  return sum;
+}

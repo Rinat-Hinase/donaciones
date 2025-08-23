@@ -1,7 +1,9 @@
+// NewExpense.jsx — con callback onCreated y toasts
 import React, { useEffect, useRef, useState } from "react";
 import { addExpense } from "../../lib/firebase.js";
 import { useAuth } from "../../lib/AuthContext.jsx";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import {
   Plus,
   X,
@@ -13,7 +15,10 @@ import {
   FileText,
 } from "lucide-react";
 
-const moneyFmt = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
+const moneyFmt = new Intl.NumberFormat("es-MX", {
+  style: "currency",
+  currency: "MXN",
+});
 
 const CATS = [
   { id: "medicinas", label: "Medicinas", icon: Pill },
@@ -24,7 +29,7 @@ const CATS = [
   { id: "otros", label: "Otros", icon: FileText },
 ];
 
-export default function NewExpense({ campanaId }) {
+export default function NewExpense({ campanaId, onCreated }) {
   const { user } = useAuth();
 
   // sheet
@@ -77,14 +82,25 @@ export default function NewExpense({ campanaId }) {
         nota: nota.trim(),
         uid: user?.uid || null,
       });
-      // feedback + reset
+
+      // feedback + reset UI
       setConcepto("");
       setMonto("");
       setNota("");
       setCategoria("medicinas");
       setOpen(false);
+
+      // notificar al padre y mensaje de éxito
+      onCreated?.();
+      toast.success("Gasto registrado correctamente", {
+        description:
+          "Todo en orden: guardado en Firestore, animado con Framer Motion y notificado con Sonner.",
+      });
     } catch (e) {
       setErr("No se pudo guardar. Intenta de nuevo.");
+      toast.error("Error al guardar el gasto", {
+        description: e?.message || String(e),
+      });
       if (import.meta.env.DEV) console.error(e);
     } finally {
       setLoading(false);
@@ -160,9 +176,11 @@ export default function NewExpense({ campanaId }) {
                       key={id}
                       onClick={() => setCategoria(id)}
                       className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm
-                        ${categoria === id
-                          ? "bg-teal-600 border-teal-700 text-white"
-                          : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200"}`}
+                        ${
+                          categoria === id
+                            ? "bg-teal-600 border-teal-700 text-white"
+                            : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200"
+                        }`}
                     >
                       <Icon size={16} />
                       {label}
@@ -180,7 +198,9 @@ export default function NewExpense({ campanaId }) {
                     inputMode="decimal"
                     placeholder="0.00"
                     value={monto}
-                    onChange={(e) => setMonto(e.target.value.replace(/[^\d.,]/g, ""))}
+                    onChange={(e) =>
+                      setMonto(e.target.value.replace(/[^\d.,]/g, ""))
+                    }
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/70 pl-7 pr-3 py-3 text-right text-base text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-4 focus:ring-teal-200/60 dark:focus:ring-teal-800/40"
                   />
                 </div>
@@ -210,9 +230,7 @@ export default function NewExpense({ campanaId }) {
                 />
 
                 {err && (
-                  <p className="mt-3 text-sm text-red-600 dark:text-red-400">
-                    {err}
-                  </p>
+                  <p className="mt-3 text-sm text-red-600 dark:text-red-400">{err}</p>
                 )}
               </form>
 
