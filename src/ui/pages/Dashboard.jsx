@@ -4,6 +4,9 @@ import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Trophy, Medal, Users } from "lucide-react";
+const campaignNames = {
+  default: "Papá Raúl"
+};
 
 import Header from "../components/Header.jsx";
 import { listDonations, getExpensesTotal } from "../../lib/firebase.js";
@@ -24,6 +27,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [expTotal, setExpTotal] = useState(0); // total gastos
+  const displayName = campaignNames[campanaId] || campanaId;
 
   useEffect(() => {
   (async () => {
@@ -70,7 +74,7 @@ const balance = useMemo(() => total - expTotal, [total, expTotal]);
 
   return (
     <div>
-      <Header title="Tablero" />
+      <Header title={`Tablero — ${displayName}`} />
       <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
         <div className="container px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
           {/* TOP 3 Donantes — versión compacta */}

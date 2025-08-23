@@ -38,9 +38,10 @@ export default function Header({ title }) {
         <div className="h-16 flex items-center justify-between gap-3">
           {/* Brand */}
           <Link to={`/c/${campanaId}`} className="flex items-center gap-2">
-            <div className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-teal-600 text-white">
-              <HeartHandshake size={18} />
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-teal-600 text-white">
+              <HeartHandshake size={28} />
             </div>
+
             <div className="leading-tight">
               <div className="text-base font-bold text-slate-900 dark:text-slate-50">
                 {title || "Donaciones"}
@@ -53,26 +54,32 @@ export default function Header({ title }) {
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-2">
-  <NavLink
-    end
-    to={`/c/${campanaId}`}
-    className={({ isActive }) => twMerge(baseLink, isActive ? active : inactive)}
-  >
-    <LayoutDashboard size={16} /> <span>Tablero</span>
-  </NavLink>
-  <NavLink
-    to={`/c/${campanaId}/lista`}
-    className={({ isActive }) => twMerge(baseLink, isActive ? active : inactive)}
-  >
-    <ListOrdered size={16} /> <span>Lista</span>
-  </NavLink>
-  <NavLink
-    to={`/c/${campanaId}/gastos`}
-    className={({ isActive }) => twMerge(baseLink, isActive ? active : inactive)}
-  >
-    <Wallet size={16} /> <span>Gastos</span>
-  </NavLink>
-</nav>
+            <NavLink
+              end
+              to={`/c/${campanaId}`}
+              className={({ isActive }) =>
+                twMerge(baseLink, isActive ? active : inactive)
+              }
+            >
+              <LayoutDashboard size={16} /> <span>Tablero</span>
+            </NavLink>
+            <NavLink
+              to={`/c/${campanaId}/lista`}
+              className={({ isActive }) =>
+                twMerge(baseLink, isActive ? active : inactive)
+              }
+            >
+              <ListOrdered size={16} /> <span>Lista</span>
+            </NavLink>
+            <NavLink
+              to={`/c/${campanaId}/gastos`}
+              className={({ isActive }) =>
+                twMerge(baseLink, isActive ? active : inactive)
+              }
+            >
+              <Wallet size={16} /> <span>Gastos</span>
+            </NavLink>
+          </nav>
 
           {/* Actions desktop */}
           <div className="hidden md:flex items-center gap-2">
@@ -92,13 +99,13 @@ export default function Header({ title }) {
 
           {/* Mobile toggler */}
           <button
-            className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-300/60 dark:focus:ring-slate-700/60"
+            className="md:hidden inline-flex items-center justify-center w-12 h-12 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-300/60 dark:focus:ring-slate-700/60"
             aria-label="Abrir menú"
             aria-expanded={open}
             aria-controls="mobile-menu"
             onClick={() => setOpen((s) => !s)}
           >
-            {open ? <X size={18} /> : <Menu size={18} />}
+            {open ? <X size={42} /> : <Menu size={42} />}
           </button>
         </div>
       </div>
@@ -127,16 +134,18 @@ export default function Header({ title }) {
             >
               <div className="px-4 py-3 space-y-2">
                 <NavLink
-  end
-  onClick={() => setOpen(false)}
-  to={`/c/${campanaId}`}
-  className={({ isActive }) =>
-    twMerge(baseLink + " w-full justify-start", isActive ? active : inactive)
-  }
->
-  <LayoutDashboard size={16} /> <span>Tablero</span>
-</NavLink>
-
+                  end
+                  onClick={() => setOpen(false)}
+                  to={`/c/${campanaId}`}
+                  className={({ isActive }) =>
+                    twMerge(
+                      baseLink + " w-full justify-start",
+                      isActive ? active : inactive
+                    )
+                  }
+                >
+                  <LayoutDashboard size={16} /> <span>Tablero</span>
+                </NavLink>
 
                 <NavLink
                   onClick={() => setOpen(false)}
