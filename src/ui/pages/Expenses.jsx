@@ -9,7 +9,7 @@ import { listExpensesPage, deleteExpense } from "../../lib/firebase.js";
 
 import { Toaster, toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Filter, ChevronDown, Trash2, Loader2 } from "lucide-react";
+import { Search, Filter, ChevronDown, Trash2, Loader2, Share2 } from "lucide-react";
 
 const fmt = new Intl.NumberFormat("es-MX", {
   style: "currency",
@@ -192,6 +192,29 @@ export default function Expenses() {
         "Guardado en Firestore. UI animada con Framer Motion y notificación por Sonner.",
     });
   }
+  function shareExpenses() {
+  // Detalle: "1. Concepto · $123.00 · Categoría"
+  const detalles = filtered
+    .map((r, i) => {
+      const lineaBase = `${i + 1}. ${r.concepto || "—"} · ${fmt.format(Number(r.monto) || 0)}`;
+      const cat = r.categoria ? ` · ${r.categoria}` : "";
+      return lineaBase + cat;
+    })
+    .join("\n");
+
+  const text =
+    `Gastos — Campaña ${campanaId}\n` +
+    `Total: ${fmt.format(total)} · Registros: ${filtered.length}\n\n` +
+    `=== Detalle ===\n${detalles}`;
+
+  if (navigator.share) {
+    navigator.share({ title: `Gastos ${campanaId}`, text }).catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(text);
+    toast.success("Resumen de gastos copiado");
+  }
+}
+
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B1220]">
@@ -243,6 +266,7 @@ export default function Expenses() {
         {/* filtros mínimos */}
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 mb-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+
             <div className="flex-1 flex flex-wrap items-center gap-2">
               <div className="relative w-full md:w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -304,10 +328,20 @@ export default function Expenses() {
               </div>
             </div>
 
+
             {/* botón alta en móvil */}
             <div className="md:hidden">
               <NewExpense campanaId={campanaId} />
             </div>
+            <button
+  onClick={shareExpenses}
+  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 min-h-[44px] text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+  aria-label="Compartir gastos"
+>
+  <Share2 className="h-4 w-4" />
+  Compartir
+</button>
+
           </div>
         </div>
 

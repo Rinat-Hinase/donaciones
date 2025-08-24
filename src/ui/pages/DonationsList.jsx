@@ -177,19 +177,31 @@ export default function DonationsList() {
   }
 
   function shareList() {
-    // Minimal: compartir totales y conteo (no saturamos con PNG aquí)
-    const text = `Donaciones — Campaña ${campanaId}\nTotal: ${money.format(
-      total
-    )} · Registros: ${filtered.length}`;
-    if (navigator.share) {
-      navigator
-        .share({ title: `Donaciones ${campanaId}`, text })
-        .catch(() => {});
-    } else {
-      navigator.clipboard?.writeText(text);
-      toast.success("Resumen copiado");
-    }
+  // Generar lista de donantes con monto
+  const detalles = filtered
+    .map(
+      (r, i) =>
+        `${i + 1}. ${r.donante_nombre || "—"} · ${money.format(
+          Number(r.monto) || 0
+        )}`
+    )
+    .join("\n");
+
+  // Texto completo
+  const text = `Donaciones — Campaña ${campanaId}\n` +
+    `Total: ${money.format(total)} · Registros: ${filtered.length}\n\n` +
+    `=== Detalle ===\n${detalles}`;
+
+  if (navigator.share) {
+    navigator
+      .share({ title: `Donaciones ${campanaId}`, text })
+      .catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(text);
+    toast.success("Resumen copiado con detalle");
   }
+}
+
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B1220]">
