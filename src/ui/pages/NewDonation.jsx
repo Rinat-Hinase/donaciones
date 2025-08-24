@@ -16,7 +16,10 @@ import {
   Shield,
 } from "lucide-react";
 
-const moneyFmt = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
+const moneyFmt = new Intl.NumberFormat("es-MX", {
+  style: "currency",
+  currency: "MXN",
+});
 
 const METHODS = [
   { id: "efectivo", label: "Efectivo", icon: Wallet },
@@ -48,7 +51,8 @@ export default function NewDonation() {
     if (!open) return;
     const onEsc = (e) => e.key === "Escape" && closeSheet();
     const onDown = (e) => {
-      if (sheetRef.current && !sheetRef.current.contains(e.target)) closeSheet();
+      if (sheetRef.current && !sheetRef.current.contains(e.target))
+        closeSheet();
     };
     document.addEventListener("keydown", onEsc);
     document.addEventListener("mousedown", onDown, true);
@@ -62,7 +66,7 @@ export default function NewDonation() {
   function closeSheet() {
     setOpen(false);
     // pequeña demora para dejar cerrar la animación
-    setTimeout(() => nav(`/c/${campanaId}`), 180);
+    setTimeout(() => nav(`/c/${campanaId}/lista`), 180);
   }
 
   function addQuick(val) {
@@ -76,7 +80,8 @@ export default function NewDonation() {
 
     const cleanedName = (anonimo ? "Anónimo" : nombre).trim();
     const amount = Number(String(monto).replace(/,/g, "."));
-    if (!cleanedName) return setErr("Escribe el nombre del donante o activa Anónimo.");
+    if (!cleanedName)
+      return setErr("Escribe el nombre del donante o activa Anónimo.");
     if (!amount || amount < 1) return setErr("Monto inválido (≥ 1).");
 
     try {
@@ -96,6 +101,11 @@ export default function NewDonation() {
       setMonto("");
       setNota("");
       // deja el mismo método seleccionado
+      window.dispatchEvent(
+        new CustomEvent("donation:created", {
+          detail: { nombre: cleanedName, monto: amount },
+        })
+      );
     } catch (e) {
       setErr("No se pudo guardar. Intenta de nuevo.");
       if (import.meta.env.DEV) console.error(e);
@@ -157,7 +167,9 @@ export default function NewDonation() {
               {/* Formulario */}
               <form onSubmit={submit} className="px-4 pb-28 overflow-y-auto">
                 {/* Nombre + Anónimo */}
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Nombre del donante</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Nombre del donante
+                </label>
                 <div className="mt-1 flex items-center gap-2">
                   <input
                     autoFocus={!anonimo}
@@ -184,14 +196,20 @@ export default function NewDonation() {
                 </div>
 
                 {/* Monto + atajos */}
-                <label className="mt-5 block text-sm font-medium text-slate-700 dark:text-slate-200">Monto</label>
+                <label className="mt-5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Monto
+                </label>
                 <div className="mt-1 relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                    $
+                  </span>
                   <input
                     inputMode="decimal"
                     placeholder="0.00"
                     value={monto}
-                    onChange={(e) => setMonto(e.target.value.replace(/[^\d.,]/g, ""))}
+                    onChange={(e) =>
+                      setMonto(e.target.value.replace(/[^\d.,]/g, ""))
+                    }
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/70 pl-7 pr-3 py-3 text-right text-base text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-4 focus:ring-teal-200/60 dark:focus:ring-teal-800/40"
                   />
                 </div>
@@ -209,7 +227,9 @@ export default function NewDonation() {
                 </div>
 
                 {/* Método (pills) */}
-                <p className="mt-5 text-sm font-medium text-slate-700 dark:text-slate-200">Método de pago</p>
+                <p className="mt-5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Método de pago
+                </p>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   {METHODS.map(({ id, label, icon: Icon }) => (
                     <button
@@ -230,7 +250,9 @@ export default function NewDonation() {
                 </div>
 
                 {/* Nota */}
-                <label className="mt-5 block text-sm font-medium text-slate-700 dark:text-slate-200">Nota (opcional)</label>
+                <label className="mt-5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Nota (opcional)
+                </label>
                 <textarea
                   rows={2}
                   value={nota}
@@ -239,7 +261,11 @@ export default function NewDonation() {
                   className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/70 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-4 focus:ring-teal-200/60 dark:focus:ring-teal-800/40 text-base px-3 py-3 resize-none"
                 />
 
-                {err && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{err}</p>}
+                {err && (
+                  <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+                    {err}
+                  </p>
+                )}
               </form>
 
               {/* CTA sticky */}
@@ -250,7 +276,13 @@ export default function NewDonation() {
                     disabled={loading}
                     className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold px-4 py-3 disabled:opacity-60"
                   >
-                    {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando…</> : "Guardar y agregar otra"}
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Guardando…
+                      </>
+                    ) : (
+                      "Guardar y agregar otra"
+                    )}
                   </button>
                   <button
                     type="button"

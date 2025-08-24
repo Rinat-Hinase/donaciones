@@ -1,20 +1,28 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate, Outlet } from "react-router-dom";
 import { getAuth } from "firebase/auth";
 import { getFirestore, doc, getDoc } from "firebase/firestore";
 
 import Header from "../components/Header.jsx";
-import NewExpense from "../components/NewExpense.jsx";
 import { listExpensesPage, deleteExpense } from "../../lib/firebase.js";
 
 import { Toaster, toast } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
-import { Search, Filter, ChevronDown, Trash2, Loader2, Share2 } from "lucide-react";
+import {
+  motion,
+  AnimatePresence
+} from "framer-motion";
+import {
+  Search,
+  Filter,
+  ChevronDown,
+  Trash2,
+  Loader2,
+  Share2,
+  PencilLine,
+  Plus
+} from "lucide-react";
 
-const fmt = new Intl.NumberFormat("es-MX", {
-  style: "currency",
-  currency: "MXN",
-});
+const fmt = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
 const dfmt = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" });
 
 // Presets reducidos para móvil
@@ -26,6 +34,7 @@ const PRESETS = [
 
 export default function Expenses() {
   const { campanaId } = useParams();
+  const nav = useNavigate();
 
   // auth/admin
   const [isAdmin, setIsAdmin] = useState(false);
@@ -70,6 +79,7 @@ export default function Expenses() {
     }
   }
 
+  // primera carga / reset por campana
   useEffect(() => {
     setRows([]);
     setCursor(null);
@@ -78,6 +88,32 @@ export default function Expenses() {
     setCategory("ALL");
     setPreset("ALL");
     loadPage(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campanaId]);
+
+  // 🔁 refresco automático cuando se cree/edite desde sheets anidados
+  useEffect(() => {
+    async function reload() {
+      // reset a primera página para evitar duplicados
+      setRows([]);
+      setCursor(null);
+      setHasMore(true);
+      await loadPage(null);
+    }
+    const onCreated = () => {
+      toast.success("Gasto registrado correctamente");
+      reload();
+    };
+    const onUpdated = () => {
+      toast.success("Gasto actualizado correctamente");
+      reload();
+    };
+    window.addEventListener("expense:created", onCreated);
+    window.addEventListener("expense:updated", onUpdated);
+    return () => {
+      window.removeEventListener("expense:created", onCreated);
+      window.removeEventListener("expense:updated", onUpdated);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campanaId]);
 
@@ -111,12 +147,9 @@ export default function Expenses() {
   const catRef = useRef(null);
   useEffect(() => {
     const onDown = (e) => {
-      if (catRef.current && !catRef.current.contains(e.target))
-        setCatOpen(false);
+      if (catRef.current && !catRef.current.contains(e.target)) setCatOpen(false);
     };
-    const onEsc = (e) => {
-      if (e.key === "Escape") setCatOpen(false);
-    };
+    const onEsc = (e) => { if (e.key === "Escape") setCatOpen(false); };
     document.addEventListener("mousedown", onDown, true);
     document.addEventListener("keydown", onEsc, true);
     return () => {
@@ -134,11 +167,7 @@ export default function Expenses() {
       const ts = d.getTime ? d.getTime() : new Date(d).getTime();
       if (preset === "TODAY") {
         const base = new Date();
-        const start = new Date(
-          base.getFullYear(),
-          base.getMonth(),
-          base.getDate()
-        ).getTime();
+        const start = new Date(base.getFullYear(), base.getMonth(), base.getDate()).getTime();
         const end = start + 86400000;
         return ts >= start && ts < end;
       }
@@ -151,8 +180,7 @@ export default function Expenses() {
       const nota = (r.nota || "").toLowerCase();
       const catOk = category === "ALL" || r.categoria === category;
       const qOk = !q || concepto.includes(q) || nota.includes(q);
-      const fecha =
-        r.creado_en?.toDate?.() || (r.creado_en ? new Date(r.creado_en) : null);
+      const fecha = r.creado_en?.toDate?.() || (r.creado_en ? new Date(r.creado_en) : null);
       return catOk && qOk && inPreset(fecha);
     });
   }, [rows, query, category, preset]);
@@ -170,51 +198,41 @@ export default function Expenses() {
       await deleteExpense(toDelete.id);
       setRows((prev) => prev.filter((r) => r.id !== toDelete.id));
       toast.success("Gasto eliminado");
+      // (opcional) también podríamos despachar un evento global si hay otros widgets
+      // window.dispatchEvent(new CustomEvent("expense:deleted", { detail: { id: toDelete.id } }));
     } catch (e) {
-      toast.error("Error al eliminar", {
-        description: e?.message || String(e),
-      });
+      toast.error("Error al eliminar", { description: e?.message || String(e) });
     } finally {
       setToDelete(null);
     }
   }
-  // refrescar después de crear
-  async function handleCreated() {
-    // resetear paginación y recargar primera página
-    setRows([]);
-    setCursor(null);
-    setHasMore(true);
-    await loadPage(null);
 
-    // confirmación al usuario
-    toast.success("Gasto registrado", {
-      description:
-        "Guardado en Firestore. UI animada con Framer Motion y notificación por Sonner.",
-    });
-  }
+  // compartir
   function shareExpenses() {
-  // Detalle: "1. Concepto · $123.00 · Categoría"
-  const detalles = filtered
-    .map((r, i) => {
-      const lineaBase = `${i + 1}. ${r.concepto || "—"} · ${fmt.format(Number(r.monto) || 0)}`;
-      const cat = r.categoria ? ` · ${r.categoria}` : "";
-      return lineaBase + cat;
-    })
-    .join("\n");
+    const detalles = filtered
+      .map((r, i) => {
+        const lineaBase = `${i + 1}. ${r.concepto || "—"} · ${fmt.format(Number(r.monto) || 0)}`;
+        const cat = r.categoria ? ` · ${r.categoria}` : "";
+        return lineaBase + cat;
+      })
+      .join("\n");
 
-  const text =
-    `Gastos — Campaña ${campanaId}\n` +
-    `Total: ${fmt.format(total)} · Registros: ${filtered.length}\n\n` +
-    `=== Detalle ===\n${detalles}`;
+    const text =
+      `Gastos — Campaña ${campanaId}\n` +
+      `Total: ${fmt.format(total)} · Registros: ${filtered.length}\n\n` +
+      `=== Detalle ===\n${detalles}`;
 
-  if (navigator.share) {
-    navigator.share({ title: `Gastos ${campanaId}`, text }).catch(() => {});
-  } else {
-    navigator.clipboard?.writeText(text);
-    toast.success("Resumen de gastos copiado");
+    if (navigator.share) {
+      navigator.share({ title: `Gastos ${campanaId}`, text }).catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(text);
+      toast.success("Resumen de gastos copiado");
+    }
   }
-}
 
+  // navegación a routes hijas
+  const goNew = () => nav(`/c/${campanaId}/gastos/nuevo`);
+  const goEdit = (id) => nav(`/c/${campanaId}/gastos/editar/${id}`);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B1220]">
@@ -247,19 +265,34 @@ export default function Expenses() {
               {campanaId}
             </div>
           </div>
-          {/* desktop */}
+          {/* desktop: CTA nuevo via ruta */}
           <div className="hidden md:flex items-center justify-end">
-            <NewExpense campanaId={campanaId} onCreated={handleCreated} />
+            <button
+              onClick={goNew}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold shadow-sm"
+            >
+              <Plus size={16} /> Registrar gasto
+            </button>
           </div>
 
-          {/* móvil */}
+          {/* móvil: CTA nuevo + FAB */}
           <div className="md:hidden">
-            <NewExpense campanaId={campanaId} onCreated={handleCreated} />
+            <button
+              onClick={goNew}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold shadow-sm"
+            >
+              <Plus size={16} /> Registrar gasto
+            </button>
           </div>
-
-          {/* FAB móvil persistente */}
           <div className="fixed bottom-6 right-6 md:hidden z-40">
-            <NewExpense campanaId={campanaId} onCreated={handleCreated} />
+            <button
+              onClick={goNew}
+              className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-teal-700 hover:bg-teal-800 text-white shadow-lg"
+              aria-label="Nuevo gasto"
+              title="Nuevo gasto"
+            >
+              <Plus size={22} />
+            </button>
           </div>
         </div>
 
@@ -283,7 +316,7 @@ export default function Expenses() {
                 <button
                   type="button"
                   onClick={() => setCatOpen((o) => !o)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 min-h-[44px] text-sm text-slate-700 dark:text-slate-200"
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 min-h[44px] text-sm text-slate-700 dark:text-slate-200"
                 >
                   <Filter className="h-4 w-4" />
                   {category === "ALL" ? "Todas" : category}
@@ -310,7 +343,7 @@ export default function Expenses() {
                 )}
               </div>
 
-              {/* presets compactos */}
+              {/* presets */}
               <div className="flex gap-2 overflow-x-auto md:overflow-visible">
                 {PRESETS.map((p) => (
                   <button
@@ -328,20 +361,15 @@ export default function Expenses() {
               </div>
             </div>
 
-
-            {/* botón alta en móvil */}
-            <div className="md:hidden">
-              <NewExpense campanaId={campanaId} />
-            </div>
+            {/* compartir */}
             <button
-  onClick={shareExpenses}
-  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 min-h-[44px] text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-  aria-label="Compartir gastos"
->
-  <Share2 className="h-4 w-4" />
-  Compartir
-</button>
-
+              onClick={shareExpenses}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 min-h-[44px] text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              aria-label="Compartir gastos"
+            >
+              <Share2 className="h-4 w-4" />
+              Compartir
+            </button>
           </div>
         </div>
 
@@ -364,18 +392,14 @@ export default function Expenses() {
                         {r.concepto}
                       </div>
                       <div className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        {dfmt.format(
-                          r.creado_en?.toDate?.() || new Date(r.creado_en)
-                        )}
+                        {dfmt.format(r.creado_en?.toDate?.() || new Date(r.creado_en))}
                       </div>
                       <div className="mt-2 inline-flex items-center gap-2 text-[12px]">
                         <span className="rounded-full border px-2 py-0.5 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                           {r.categoria || "—"}
                         </span>
                         {r.nota && (
-                          <span className="text-slate-600 dark:text-slate-300">
-                            {r.nota}
-                          </span>
+                          <span className="text-slate-600 dark:text-slate-300">{r.nota}</span>
                         )}
                       </div>
                     </div>
@@ -383,13 +407,23 @@ export default function Expenses() {
                       <div className="text-base font-semibold text-teal-600">
                         {fmt.format(Number(r.monto) || 0)}
                       </div>
+
+                      {/* acciones admin */}
                       {isAdmin && (
-                        <button
-                          onClick={() => setToDelete({ id: r.id })}
-                          className="mt-2 inline-flex items-center gap-1.5 text-xs text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4" /> Eliminar
-                        </button>
+                        <div className="mt-2 flex items-center gap-3 justify-end">
+                          <button
+                            onClick={() => goEdit(r.id)}
+                            className="inline-flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-200"
+                          >
+                            <PencilLine className="h-4 w-4" /> Editar
+                          </button>
+                          <button
+                            onClick={() => setToDelete({ id: r.id })}
+                            className="inline-flex items-center gap-1.5 text-xs text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4" /> Eliminar
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -397,9 +431,7 @@ export default function Expenses() {
               ))}
             </AnimatePresence>
             {filtered.length === 0 && !loading && (
-              <li className="p-6 text-center text-slate-500 dark:text-slate-400">
-                No hay gastos.
-              </li>
+              <li className="p-6 text-center text-slate-500 dark:text-slate-400">No hay gastos.</li>
             )}
             <div ref={sentinelRef} />
           </ul>
@@ -414,9 +446,7 @@ export default function Expenses() {
                   <th className="p-3 font-semibold text-right">Monto</th>
                   <th className="p-3 font-semibold">Nota</th>
                   <th className="p-3 font-semibold">Fecha</th>
-                  {isAdmin && (
-                    <th className="p-3 font-semibold text-right">Acciones</th>
-                  )}
+                  {isAdmin && <th className="p-3 font-semibold text-right">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
@@ -429,9 +459,7 @@ export default function Expenses() {
                       exit={{ opacity: 0, y: -6 }}
                       className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/60 dark:hover:bg-slate-800/60"
                     >
-                      <td className="p-3 text-slate-800 dark:text-slate-100">
-                        {r.concepto}
-                      </td>
+                      <td className="p-3 text-slate-800 dark:text-slate-100">{r.concepto}</td>
                       <td className="p-3">
                         <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-200">
                           {r.categoria || "—"}
@@ -440,22 +468,26 @@ export default function Expenses() {
                       <td className="p-3 text-right tabular-nums text-slate-900 dark:text-slate-100">
                         {fmt.format(Number(r.monto) || 0)}
                       </td>
+                      <td className="p-3 text-slate-600 dark:text-slate-300">{r.nota || "—"}</td>
                       <td className="p-3 text-slate-600 dark:text-slate-300">
-                        {r.nota || "—"}
-                      </td>
-                      <td className="p-3 text-slate-600 dark:text-slate-300">
-                        {dfmt.format(
-                          r.creado_en?.toDate?.() || new Date(r.creado_en)
-                        )}
+                        {dfmt.format(r.creado_en?.toDate?.() || new Date(r.creado_en))}
                       </td>
                       {isAdmin && (
                         <td className="p-3 text-right">
-                          <button
-                            onClick={() => setToDelete({ id: r.id })}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-red-200/70 dark:border-red-900/40 text-red-700 dark:text-red-400 px-2.5 py-1.5 text-xs hover:bg-red-50/60 dark:hover:bg-red-950/30"
-                          >
-                            <Trash2 className="h-4 w-4" /> Eliminar
-                          </button>
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              onClick={() => goEdit(r.id)}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1.5 text-xs hover:bg-slate-50/60 dark:hover:bg-slate-800/60"
+                            >
+                              <PencilLine className="h-4 w-4" /> Editar
+                            </button>
+                            <button
+                              onClick={() => setToDelete({ id: r.id })}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-red-200/70 dark:border-red-900/40 text-red-700 dark:text-red-400 px-2.5 py-1.5 text-xs hover:bg-red-50/60 dark:hover:bg-red-950/30"
+                            >
+                              <Trash2 className="h-4 w-4" /> Eliminar
+                            </button>
+                          </div>
                         </td>
                       )}
                     </motion.tr>
@@ -497,8 +529,7 @@ export default function Expenses() {
                   Eliminar gasto
                 </h3>
                 <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                  Esta acción moverá el gasto a eliminado y no será visible en
-                  la lista.
+                  Esta acción moverá el gasto a eliminado y no será visible en la lista.
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
                   <button
@@ -520,10 +551,8 @@ export default function Expenses() {
         </AnimatePresence>
       </main>
 
-      {/* FAB móvil persistente */}
-      <div className="fixed bottom-6 right-6 md:hidden z-40">
-        <NewExpense campanaId={campanaId} />
-      </div>
+      {/* Aquí se pintan los sheets anidados: /gastos/nuevo y /gastos/editar/:id */}
+      <Outlet />
 
       <Toaster richColors position="top-right" />
     </div>

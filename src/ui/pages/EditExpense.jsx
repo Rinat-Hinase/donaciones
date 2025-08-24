@@ -1,25 +1,11 @@
-// NewExpense.jsx — versión ruta anidada (sheet)
-// Abre al montarse, guarda, despacha evento y vuelve a /c/:campanaId/gastos
-import React, { useEffect, useRef, useState } from "react";
+// src/pages/EditExpense.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { addExpense } from "../../lib/firebase.js";
-import { useAuth } from "../../lib/AuthContext.jsx";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import {
-  X,
-  Pill,
-  Stethoscope,
-  Syringe,
-  Ambulance,
-  Hospital,
-  FileText,
-} from "lucide-react";
-
-const moneyFmt = new Intl.NumberFormat("es-MX", {
-  style: "currency",
-  currency: "MXN",
-});
+import { X, Pill, Stethoscope, Syringe, Ambulance, Hospital, FileText } from "lucide-react";
+import { db } from "../../lib/firebase.js";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 
 const CATS = [
   { id: "medicinas", label: "Medicinas", icon: Pill },
@@ -30,12 +16,11 @@ const CATS = [
   { id: "otros", label: "Otros", icon: FileText },
 ];
 
-export default function NewExpense() {
-  const { campanaId } = useParams();
-  const { user } = useAuth();
+export default function EditExpense() {
+  const { campanaId, gastoId } = useParams();
   const nav = useNavigate();
 
-  // sheet abierto por ruta
+  // sheet abierto por defecto (ruta hija)
   const [open, setOpen] = useState(true);
   const sheetRef = useRef(null);
 
@@ -47,12 +32,13 @@ export default function NewExpense() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
+  // Cerrar sheet → regresar a la lista de gastos
   function closeSheet() {
     setOpen(false);
     setTimeout(() => nav(`/c/${campanaId}/gastos`), 180);
   }
 
-  // cerrar con ESC / tap fuera
+  // Cerrar con ESC / tap fuera
   useEffect(() => {
     if (!open) return;
     const onEsc = (e) => e.key === "Escape" && closeSheet();
@@ -65,12 +51,31 @@ export default function NewExpense() {
       document.removeEventListener("keydown", onEsc);
       document.removeEventListener("mousedown", onDown, true);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  function addQuick(val) {
-    const curr = Number(String(monto).replace(/,/g, ".")) || 0;
-    setMonto(String(curr + val));
-  }
+  // Cargar gasto
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!gastoId) return;
+        const snap = await getDoc(doc(db, "gastos", gastoId));
+        if (!snap.exists()) {
+          toast.error("No se encontró el gasto");
+          return closeSheet();
+        }
+        const r = snap.data();
+        setConcepto(r.concepto || "");
+        setCategoria(r.categoria || "medicinas");
+        setMonto(String(r.monto ?? ""));
+        setNota(r.nota || "");
+      } catch (e) {
+        toast.error("Error al cargar el gasto", { description: e?.message || String(e) });
+        closeSheet();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gastoId]);
 
   async function submit(e) {
     e.preventDefault();
@@ -83,21 +88,19 @@ export default function NewExpense() {
 
     try {
       setLoading(true);
-      await addExpense({
-        campanaId,
+      await updateDoc(doc(db, "gastos", gastoId), {
         concepto: concept,
         categoria,
         monto: amount,
         nota: (nota || "").trim(),
-        uid: user?.uid || null,
+        actualizado_en: serverTimestamp(),
       });
 
-      // feedback + refresco de lista
-      window.dispatchEvent(new CustomEvent("expense:created"));
+      // aviso global para refrescar lista
+      window.dispatchEvent(new CustomEvent("expense:updated", { detail: { id: gastoId } }));
       closeSheet();
     } catch (e) {
-      setErr("No se pudo guardar. Intenta de nuevo.");
-      toast.error("Error al guardar el gasto", {
+      toast.error("No se pudo actualizar el gasto", {
         description: e?.message || String(e),
       });
       if (import.meta.env.DEV) console.error(e);
@@ -128,7 +131,7 @@ export default function NewExpense() {
               <div className="mx-auto h-1.5 w-10 rounded-full bg-slate-300/70 dark:bg-slate-700/70" />
               <div className="mt-3 flex items-center justify-between">
                 <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50">
-                  Nuevo gasto (apoyo a Raúl)
+                  Editar gasto
                 </h2>
                 <button
                   onClick={closeSheet}
@@ -142,7 +145,6 @@ export default function NewExpense() {
 
             {/* Formulario */}
             <form onSubmit={submit} className="px-4 pb-28 overflow-y-auto">
-              {/* Concepto */}
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                 Concepto
               </label>
@@ -154,7 +156,6 @@ export default function NewExpense() {
                 className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/70 text-slate-900 dark:text-slate-100 shadow-sm focus:outline-none focus:ring-4 focus:ring-teal-200/60 dark:focus:ring-teal-800/40 text-base px-3 py-3"
               />
 
-              {/* Categorías */}
               <p className="mt-4 text-sm font-medium text-slate-700 dark:text-slate-200">
                 Categoría
               </p>
@@ -177,7 +178,6 @@ export default function NewExpense() {
                 ))}
               </div>
 
-              {/* Monto + atajos */}
               <label className="mt-5 block text-sm font-medium text-slate-700 dark:text-slate-200">
                 Monto
               </label>
@@ -187,26 +187,11 @@ export default function NewExpense() {
                   inputMode="decimal"
                   placeholder="0.00"
                   value={monto}
-                  onChange={(e) =>
-                    setMonto(e.target.value.replace(/[^\d.,]/g, ""))
-                  }
+                  onChange={(e) => setMonto(e.target.value.replace(/[^\d.,]/g, ""))}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/70 pl-7 pr-3 py-3 text-right text-base text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-4 focus:ring-teal-200/60 dark:focus:ring-teal-800/40"
                 />
               </div>
-              <div className="mt-2 flex gap-2 overflow-x-auto">
-                {[50, 100, 200].map((n) => (
-                  <button
-                    type="button"
-                    key={n}
-                    onClick={() => addQuick(n)}
-                    className="shrink-0 rounded-full border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900"
-                  >
-                    +{moneyFmt.format(n)}
-                  </button>
-                ))}
-              </div>
 
-              {/* Nota */}
               <label className="mt-5 block text-sm font-medium text-slate-700 dark:text-slate-200">
                 Nota (opcional)
               </label>
@@ -228,7 +213,7 @@ export default function NewExpense() {
                 disabled={loading}
                 className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold px-4 py-3 disabled:opacity-60"
               >
-                {loading ? "Guardando..." : "Guardar gasto"}
+                {loading ? "Guardando..." : "Guardar cambios"}
               </button>
             </div>
           </motion.div>

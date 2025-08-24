@@ -355,7 +355,7 @@ export default function Dashboard() {
 
         {/* FAB */}
         <Link
-          to={`/c/${campanaId}/nueva`}
+          to={`/c/${campanaId}/lista/nueva`}
           className="fixed bottom-6 right-6 inline-flex items-center justify-center w-14 h-14 rounded-full
                      bg-teal-700 hover:bg-teal-800 text-white shadow-lg focus:outline-none focus:ring-4
                      focus:ring-teal-300/50 dark:focus:ring-teal-900/40"

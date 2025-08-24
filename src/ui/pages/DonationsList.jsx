@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Outlet } from "react-router-dom";
 import { getAuth } from "firebase/auth";
 import { getFirestore, doc, getDoc } from "firebase/firestore";
 
@@ -17,6 +17,7 @@ import {
   Banknote,
   CreditCard,
   MoreHorizontal,
+  Pencil,
   Trash2,
   Plus,
   XCircle,
@@ -137,7 +138,31 @@ export default function DonationsList() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campanaId, q]);
-
+  // Escuchar eventos globales para crear/editar: toast + recarga
+  useEffect(() => {
+    function onCreated(e) {
+      const nombre = e?.detail?.nombre || "—";
+      const monto = Number(e?.detail?.monto || 0);
+      toast.success("Donación registrada", {
+        description: `${nombre} · ${money.format(monto)}`,
+      });
+      load();
+    }
+    function onUpdated(e) {
+      const nombre = e?.detail?.nombre || "—";
+      const monto = Number(e?.detail?.monto || 0);
+      toast.success("Donación actualizada", {
+        description: `${nombre} · ${money.format(monto)}`,
+      });
+      load();
+    }
+    window.addEventListener("donation:created", onCreated);
+    window.addEventListener("donation:updated", onUpdated);
+    return () => {
+      window.removeEventListener("donation:created", onCreated);
+      window.removeEventListener("donation:updated", onUpdated);
+    };
+  }, []);
   // ===== Filtrado en cliente (método + rango de fechas)
   const filtered = useMemo(() => {
     const now = Date.now();
@@ -345,7 +370,7 @@ export default function DonationsList() {
           <AnimatePresence initial={false}>
             {loading && <ListSkeleton count={4} />}
             {!loading && filtered.length === 0 && (
-              <EmptyMobile onAdd={() => nav(`/c/${campanaId}/nueva`)} />
+              <EmptyMobile onAdd={() => nav(`/c/${campanaId}/lista/nueva`)} />
             )}
 
             {!loading &&
@@ -389,22 +414,28 @@ export default function DonationsList() {
                       </div>
 
                       {isAdmin && (
-                        <button
-                          onClick={() =>
-                            setToDelete({
-                              id: r.id,
-                              nombre: r.donante_nombre || "",
-                              monto: r.monto,
-                            })
-                          }
-                          className="mt-2 inline-flex items-center gap-1.5 rounded-md border 
-                   border-red-200/70 dark:border-red-900/40 
-                   text-red-700 dark:text-red-400 
-                   px-2.5 py-1.5 text-xs 
-                   hover:bg-red-50/60 dark:hover:bg-red-950/30"
-                        >
-                          <Trash2 className="h-4 w-4" /> Eliminar
-                        </button>
+                        <div className="mt-2 flex items-center justify-end gap-2">
+                          <button
+                            onClick={() =>
+                              nav(`/c/${campanaId}/lista/editar/${r.id}`)
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
+                          >
+                            <Pencil className="h-4 w-4" /> Editar
+                          </button>
+                          <button
+                            onClick={() =>
+                              setToDelete({
+                                id: r.id,
+                                nombre: r.donante_nombre || "",
+                                monto: r.monto,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-md border border-red-200/70 dark:border-red-900/40 text-red-700 dark:text-red-400 px-2.5 py-1.5 text-xs hover:bg-red-50/60 dark:hover:bg-red-950/30"
+                          >
+                            <Trash2 className="h-4 w-4" /> Eliminar
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -464,6 +495,14 @@ export default function DonationsList() {
                         <td className="p-3 text-right">
                           <button
                             onClick={() =>
+                              nav(`/c/${campanaId}/lista/editar/${r.id}`)
+                            }
+                            className="mr-2 inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
+                          >
+                            <Pencil className="h-4 w-4" /> Editar
+                          </button>
+                          <button
+                            onClick={() =>
                               setToDelete({
                                 id: r.id,
                                 nombre: r.donante_nombre || "",
@@ -510,7 +549,7 @@ export default function DonationsList() {
 
       {/* FAB móvil para agregar donación */}
       <button
-        onClick={() => nav(`/c/${campanaId}/nueva`)}
+        onClick={() => nav(`/c/${campanaId}/lista/nueva`)}
         className="md:hidden fixed bottom-5 right-5 rounded-full bg-teal-700 hover:bg-teal-800 text-white p-4 shadow-lg"
         aria-label="Agregar donación"
       >
@@ -518,6 +557,7 @@ export default function DonationsList() {
       </button>
 
       <Toaster richColors position="top-right" />
+      <Outlet />
     </div>
   );
 }

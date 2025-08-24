@@ -83,8 +83,7 @@ export default function Header({ title }) {
 
           {/* Actions desktop */}
           <div className="hidden md:flex items-center gap-2">
-            <Link
-              to={`/c/${campanaId}/nueva`}
+            <Link to={`/c/${campanaId}/lista/nueva`}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-teal-300/50 dark:focus:ring-teal-900/40"
             >
               <Plus size={16} /> Donación
@@ -178,7 +177,7 @@ export default function Header({ title }) {
                 {/* Acción primaria separada */}
                 <Link
                   onClick={() => setOpen(false)}
-                  to={`/c/${campanaId}/nueva`}
+                  to={`/c/${campanaId}/lista/nueva`}
                   className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold w-full justify-center"
                 >
                   <Plus size={16} /> Nueva donación
