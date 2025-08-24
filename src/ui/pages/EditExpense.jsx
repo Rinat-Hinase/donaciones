@@ -3,9 +3,19 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { X, Pill, Stethoscope, Syringe, Ambulance, Hospital, FileText } from "lucide-react";
-import { db } from "../../lib/firebase.js";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import {
+  X,
+  Pill,
+  Stethoscope,
+  Syringe,
+  Ambulance,
+  Hospital,
+  FileText,
+} from "lucide-react";
+import { db, updateExpense } from "../../lib/firebase.js";
+import { doc, getDoc } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
 const CATS = [
   { id: "medicinas", label: "Medicinas", icon: Pill },
@@ -19,6 +29,23 @@ const CATS = [
 export default function EditExpense() {
   const { campanaId, gastoId } = useParams();
   const nav = useNavigate();
+  // gate admin (igual que EditDonation)
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminChecked, setAdminChecked] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const uid = getAuth().currentUser?.uid;
+        if (!uid) return;
+        const snap = await getDoc(doc(getFirestore(), "usuarios", uid));
+        setIsAdmin(snap.exists() && snap.data()?.rol === "admin");
+      } catch {
+        setIsAdmin(false);
+      } finally {
+        setAdminChecked(true);
+      }
+    })();
+  }, []);
 
   // sheet abierto por defecto (ruta hija)
   const [open, setOpen] = useState(true);
@@ -43,7 +70,8 @@ export default function EditExpense() {
     if (!open) return;
     const onEsc = (e) => e.key === "Escape" && closeSheet();
     const onDown = (e) => {
-      if (sheetRef.current && !sheetRef.current.contains(e.target)) closeSheet();
+      if (sheetRef.current && !sheetRef.current.contains(e.target))
+        closeSheet();
     };
     document.addEventListener("keydown", onEsc);
     document.addEventListener("mousedown", onDown, true);
@@ -70,7 +98,9 @@ export default function EditExpense() {
         setMonto(String(r.monto ?? ""));
         setNota(r.nota || "");
       } catch (e) {
-        toast.error("Error al cargar el gasto", { description: e?.message || String(e) });
+        toast.error("Error al cargar el gasto", {
+          description: e?.message || String(e),
+        });
         closeSheet();
       }
     })();
@@ -80,6 +110,10 @@ export default function EditExpense() {
   async function submit(e) {
     e.preventDefault();
     setErr("");
+    if (!isAdmin) {
+      setErr("Solo los administradores pueden editar gastos.");
+      return;
+    }
 
     const concept = concepto.trim();
     const amount = Number(String(monto).replace(/,/g, ".")); // soporta coma
@@ -88,16 +122,17 @@ export default function EditExpense() {
 
     try {
       setLoading(true);
-      await updateDoc(doc(db, "gastos", gastoId), {
-        concepto: concept,
+      await updateExpense(gastoId, {
+       concepto: concept,
         categoria,
         monto: amount,
         nota: (nota || "").trim(),
-        actualizado_en: serverTimestamp(),
       });
 
       // aviso global para refrescar lista
-      window.dispatchEvent(new CustomEvent("expense:updated", { detail: { id: gastoId } }));
+      window.dispatchEvent(
+        new CustomEvent("expense:updated", { detail: { id: gastoId } })
+      );
       closeSheet();
     } catch (e) {
       toast.error("No se pudo actualizar el gasto", {
@@ -182,12 +217,16 @@ export default function EditExpense() {
                 Monto
               </label>
               <div className="mt-1 relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                  $
+                </span>
                 <input
                   inputMode="decimal"
                   placeholder="0.00"
                   value={monto}
-                  onChange={(e) => setMonto(e.target.value.replace(/[^\d.,]/g, ""))}
+                  onChange={(e) =>
+                    setMonto(e.target.value.replace(/[^\d.,]/g, ""))
+                  }
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/70 pl-7 pr-3 py-3 text-right text-base text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-4 focus:ring-teal-200/60 dark:focus:ring-teal-800/40"
                 />
               </div>
@@ -203,7 +242,11 @@ export default function EditExpense() {
                 className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/70 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-4 focus:ring-teal-200/60 dark:focus:ring-teal-800/40 text-base px-3 py-3 resize-none"
               />
 
-              {err && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{err}</p>}
+              {err && (
+                <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+                  {err}
+                </p>
+              )}
             </form>
 
             {/* CTA sticky */}

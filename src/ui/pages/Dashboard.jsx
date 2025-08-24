@@ -1,25 +1,23 @@
-// Dashboard.jsx – versión mobile-first pro
+// Dashboard.jsx – versión mobile-first pro (corregida)
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Trophy, Medal, Users, Share2 } from "lucide-react";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, getDoc } from "firebase/firestore";
 
 const campaignNames = {
   default: "Papá Raúl",
 };
 
 import Header from "../components/Header.jsx";
-import { listDonations, getExpensesTotal } from "../../lib/firebase.js";
+// ⛔️ Antes importaba listDonations (no existe). Ahora usamos el paginado real.
+import { listDonationsPage, getExpensesTotal } from "../../lib/firebase.js";
 
 const fmt = new Intl.NumberFormat("es-MX", {
   style: "currency",
   currency: "MXN",
-});
-const dFmt = new Intl.DateTimeFormat("es-MX", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
 });
 
 // Helpers visuales mobile-first
@@ -35,15 +33,29 @@ export default function Dashboard() {
   const [expTotal, setExpTotal] = useState(0); // total gastos
   const displayName = campaignNames[campanaId] || campanaId;
 
+  // ===== Carga inicial (donaciones + gastos) =====
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [donData, gastosTotal] = await Promise.all([
-          listDonations({ campanaId, max: 500 }),
-          getExpensesTotal({ campanaId, pageSize: 200 }),
-        ]);
-        setRows(donData);
+        // Descargamos donaciones por páginas hasta 500 (o fin)
+        const MAX = 500;
+        const PAGE = 50;
+        let cursor = null;
+        const acc = [];
+        while (acc.length < MAX) {
+          const { items, nextCursor } = await listDonationsPage({
+            campanaId,
+            pageSize: PAGE,
+            cursor,
+          });
+          if (items?.length) acc.push(...items);
+          if (!nextCursor) break;
+          cursor = nextCursor;
+        }
+        // Gastos (suma en servidor con paginado interno)
+        const gastosTotal = await getExpensesTotal({ campanaId, pageSize: 200 });
+        setRows(acc);
         setExpTotal(gastosTotal);
       } catch (e) {
         toast.error("No se pudieron cargar donaciones/gastos");
@@ -54,7 +66,29 @@ export default function Dashboard() {
     })();
   }, [campanaId]);
 
-  // KPIs
+  // ===== Admin gate reactivo a la sesión =====
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    const auth = getAuth();
+    const db = getFirestore();
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        setIsAdmin(false);
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db, "usuarios", u.uid));
+        const rol = snap.exists() ? snap.data()?.rol : null;
+        setIsAdmin(rol === "admin");
+      } catch (e) {
+        if (import.meta.env.DEV) console.error("admin-check error", e);
+        setIsAdmin(false);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // ===== KPIs =====
   const total = useMemo(
     () => rows.reduce((s, r) => s + (Number(r.monto) || 0), 0),
     [rows]
@@ -85,98 +119,87 @@ export default function Dashboard() {
 
   // ===== Compartir Dashboard (detallado)
   function shareDashboard() {
-  // Formateadores
-  const num = new Intl.NumberFormat("es-MX", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const dFmt = new Intl.DateTimeFormat("es-MX", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+    const num = new Intl.NumberFormat("es-MX", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const dFmt = new Intl.DateTimeFormat("es-MX", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
 
-  // Agrupar por persona y sumar apoyos
-  const agregados = (() => {
-    const map = new Map();
-    for (const r of rows) {
-      const key =
-        (
-          r.donante_nombre_lower ||
-          (r.donante_nombre || "").toLowerCase() ||
-          "anónimo"
-        ).trim() || "anónimo";
-      const nombre = r.donante_nombre || "Anónimo";
-      const prev = map.get(key) || { nombre, total: 0 };
-      map.set(key, { nombre, total: prev.total + (Number(r.monto) || 0) });
+    const agregados = (() => {
+      const map = new Map();
+      for (const r of rows) {
+        const key =
+          (
+            r.donante_nombre_lower ||
+            (r.donante_nombre || "").toLowerCase() ||
+            "anónimo"
+          ).trim() || "anónimo";
+        const nombre = r.donante_nombre || "Anónimo";
+        const prev = map.get(key) || { nombre, total: 0 };
+        map.set(key, { nombre, total: prev.total + (Number(r.monto) || 0) });
+      }
+      return [...map.values()].sort((a, b) => b.total - a.total);
+    })();
+
+    const top3 = agregados.slice(0, 3);
+    const otros = agregados.slice(3);
+
+    const toDateSafe = (v) => (v?.toDate ? v.toDate() : v ? new Date(v) : null);
+    const ultimas3 = [...rows]
+      .sort((a, b) => (toDateSafe(b.creado_en)?.getTime() || 0) - (toDateSafe(a.creado_en)?.getTime() || 0))
+      .slice(0, 3);
+
+    const medals = ["🥇", "🥈", "🥉"];
+
+    const lines = [
+      "PAPÁ RAÚL — CORTE",
+      `Entró (apoyos) : $${num.format(total)}`,
+      `Salió (gastos) : $${num.format(expTotal)}`,
+      "-----------------------------",
+      `🟢 Lo que queda: $${num.format(balance)}`,
+      "────────────────────",
+      "Top 3 apoyos:",
+      ...(top3.length
+        ? top3.map(
+            (d, i) => `${medals[i] || "•"} ${d.nombre} — $${num.format(d.total)}`
+          )
+        : ["—"]),
+      ...(otros.length
+        ? [
+            "────────────────────",
+            "Otros donadores:",
+            ...otros.map((d) => `• ${d.nombre} — $${num.format(d.total)}`),
+          ]
+        : []),
+      ...(ultimas3.length
+        ? [
+            "────────────────────",
+            "Últimos 3 apoyos:",
+            ...ultimas3.flatMap((r, i) => {
+              const fecha = toDateSafe(r.creado_en)
+                ? dFmt.format(toDateSafe(r.creado_en))
+                : "—";
+              const nombre = r.donante_nombre || "Anónimo";
+              const monto = `$${num.format(Number(r.monto) || 0)}`;
+              return [`${i + 1}) ${nombre}`, `   ${monto}  📅 ${fecha}`];
+            }),
+          ]
+        : []),
+    ];
+
+    const text = "```\n" + lines.join("\n") + "\n```";
+
+    if (navigator.share) {
+      navigator.share({ title: `Resumen ${displayName}`, text }).catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(text);
+      toast.success("Resumen copiado");
     }
-    return [...map.values()].sort((a, b) => b.total - a.total);
-  })();
-
-  const top3 = agregados.slice(0, 3);
-  const otros = agregados.slice(3);
-
-  // Últimas 3 donaciones con fecha
-  function toDateSafe(v) {
-    if (!v) return null;
-    return v.toDate?.() ? v.toDate() : new Date(v);
   }
-  const ultimas3 = [...rows]
-    .sort((a, b) => {
-      const ta = toDateSafe(a.creado_en)?.getTime() || 0;
-      const tb = toDateSafe(b.creado_en)?.getTime() || 0;
-      return tb - ta;
-    })
-    .slice(0, 3);
-
-  const medals = ["🥇", "🥈", "🥉"];
-
-  const lines = [
-    "PAPÁ RAÚL — CORTE",
-    `Entró (apoyos) : $${num.format(total)}`,
-    `Salió (gastos) : $${num.format(expTotal)}`,
-    "-----------------------------",
-    `🟢 Lo que queda: $${num.format(total - expTotal)}`,
-    "────────────────────",
-    "Top 3 apoyos:",
-    ...(top3.length
-      ? top3.map(
-          (d, i) => `${medals[i] || "•"} ${d.nombre} — $${num.format(d.total)}`
-        )
-      : ["—"]),
-    ...(otros.length
-      ? [
-          "────────────────────",
-          "Otros donadores:",
-          ...otros.map((d) => `• ${d.nombre} — $${num.format(d.total)}`),
-        ]
-      : []),
-    ...(ultimas3.length
-      ? [
-          "────────────────────",
-          "Últimos 3 apoyos:",
-          ...ultimas3.flatMap((r, i) => {
-            const fecha = toDateSafe(r.creado_en)
-              ? dFmt.format(toDateSafe(r.creado_en))
-              : "—";
-            const nombre = r.donante_nombre || "Anónimo";
-            const monto = `$${num.format(Number(r.monto) || 0)}`;
-            return [`${i + 1}) ${nombre}`, `   ${monto}  📅 ${fecha}`];
-          }),
-        ]
-      : []),
-  ];
-
-  const text = "```\n" + lines.join("\n") + "\n```";
-
-  if (navigator.share) {
-    navigator.share({ title: `Resumen ${displayName}`, text }).catch(() => {});
-  } else {
-    navigator.clipboard?.writeText(text);
-    toast.success("Resumen copiado");
-  }
-}
-
 
   return (
     <div>
@@ -187,10 +210,7 @@ export default function Dashboard() {
           <div className="container px-3 sm:px-4 py-2 flex justify-end">
             <button
               onClick={shareDashboard}
-              className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium
-                         bg-teal-600 text-white shadow-lg hover:bg-teal-700 active:scale-[.99]
-                         focus:outline-none focus:ring-4 focus:ring-teal-300/50
-                         dark:focus:ring-teal-900/40"
+              className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium bg-teal-600 text-white shadow-lg hover:bg-teal-700 active:scale-[.99] focus:outline-none focus:ring-4 focus:ring-teal-300/50 dark:focus:ring-teal-900/40"
               aria-label="Compartir resumen"
               title="Compartir resumen"
             >
@@ -218,10 +238,7 @@ export default function Dashboard() {
             {loading ? (
               <div className="space-y-2">
                 {[...Array(3)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-10 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse"
-                  />
+                  <div key={i} className="h-10 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />
                 ))}
               </div>
             ) : top3.length === 0 ? (
@@ -275,28 +292,16 @@ export default function Dashboard() {
             className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4"
           >
             <div className={kpi}>
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                Total recaudado
-              </p>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50">
-                {fmt.format(total)}
-              </h2>
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">Total recaudado</p>
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50">{fmt.format(total)}</h2>
             </div>
             <div className={kpi}>
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                # Donaciones
-              </p>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50">
-                {count}
-              </h2>
+              <p className="text-[11px] uppercase tracking-wide text-slate-500"># Donaciones</p>
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50">{count}</h2>
             </div>
             <div className={kpi}>
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                Balance
-              </p>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50">
-                {fmt.format(balance)}
-              </h2>
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">Balance</p>
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50">{fmt.format(balance)}</h2>
             </div>
           </motion.section>
 
@@ -309,43 +314,26 @@ export default function Dashboard() {
           >
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <Users className="text-teal-600" />
-              <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-50">
-                Últimas donaciones
-              </h3>
+              <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-50">Últimas donaciones</h3>
             </div>
 
             {loading ? (
               <div className="space-y-2">
                 {[...Array(5)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-14 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse"
-                  />
+                  <div key={i} className="h-14 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse" />
                 ))}
               </div>
             ) : rows.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                Aún no hay donaciones. Toca el botón “+” para agregar la
-                primera.
-              </p>
+              <p className="text-sm text-slate-500">Aún no hay donaciones. Toca el botón “+” para agregar la primera.</p>
             ) : (
               <ul className="space-y-2">
                 {rows.slice(0, 5).map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex justify-between items-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70"
-                  >
+                  <li key={r.id} className="flex justify-between items-center p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium truncate text-slate-900 dark:text-slate-100">
-                        {r.donante_nombre || "Anónimo"}
-                      </div>
-                      <div className="text-[11px] text-slate-500 truncate">
-                        {r.metodo || "N/D"} • {r.nota || "—"}
-                      </div>
+                      <div className="text-sm font-medium truncate text-slate-900 dark:text-slate-100">{r.donante_nombre || "Anónimo"}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{r.metodo || "N/D"} • {r.nota || "—"}</div>
                     </div>
-                    <div className="ml-3 text-sm sm:text-base font-bold text-slate-900 dark:text-slate-50 whitespace-nowrap">
-                      {fmt.format(Number(r.monto) || 0)}
-                    </div>
+                    <div className="ml-3 text-sm sm:text-base font-bold text-slate-900 dark:text-slate-50 whitespace-nowrap">{fmt.format(Number(r.monto) || 0)}</div>
                   </li>
                 ))}
               </ul>
@@ -354,16 +342,16 @@ export default function Dashboard() {
         </div>
 
         {/* FAB */}
-        <Link
-          to={`/c/${campanaId}/lista/nueva`}
-          className="fixed bottom-6 right-6 inline-flex items-center justify-center w-14 h-14 rounded-full
-                     bg-teal-700 hover:bg-teal-800 text-white shadow-lg focus:outline-none focus:ring-4
-                     focus:ring-teal-300/50 dark:focus:ring-teal-900/40"
-          aria-label="Agregar donación"
-          title="Agregar donación"
-        >
-          +
-        </Link>
+        {isAdmin && (
+          <Link
+            to={`/c/${campanaId}/lista/nueva`}
+            className="fixed bottom-6 right-6 inline-flex items-center justify-center w-14 h-14 rounded-full bg-teal-700 hover:bg-teal-800 text-white shadow-lg focus:outline-none focus:ring-4 focus:ring-teal-300/50 dark:focus:ring-teal-900/40"
+            aria-label="Agregar donación"
+            title="Agregar donación"
+          >
+            +
+          </Link>
+        )}
       </main>
     </div>
   );

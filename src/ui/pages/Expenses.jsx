@@ -7,10 +7,7 @@ import Header from "../components/Header.jsx";
 import { listExpensesPage, deleteExpense } from "../../lib/firebase.js";
 
 import { Toaster, toast } from "sonner";
-import {
-  motion,
-  AnimatePresence
-} from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   Filter,
@@ -19,10 +16,13 @@ import {
   Loader2,
   Share2,
   PencilLine,
-  Plus
+  Plus,
 } from "lucide-react";
 
-const fmt = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
+const fmt = new Intl.NumberFormat("es-MX", {
+  style: "currency",
+  currency: "MXN",
+});
 const dfmt = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" });
 
 // Presets reducidos para móvil
@@ -147,9 +147,12 @@ export default function Expenses() {
   const catRef = useRef(null);
   useEffect(() => {
     const onDown = (e) => {
-      if (catRef.current && !catRef.current.contains(e.target)) setCatOpen(false);
+      if (catRef.current && !catRef.current.contains(e.target))
+        setCatOpen(false);
     };
-    const onEsc = (e) => { if (e.key === "Escape") setCatOpen(false); };
+    const onEsc = (e) => {
+      if (e.key === "Escape") setCatOpen(false);
+    };
     document.addEventListener("mousedown", onDown, true);
     document.addEventListener("keydown", onEsc, true);
     return () => {
@@ -167,7 +170,11 @@ export default function Expenses() {
       const ts = d.getTime ? d.getTime() : new Date(d).getTime();
       if (preset === "TODAY") {
         const base = new Date();
-        const start = new Date(base.getFullYear(), base.getMonth(), base.getDate()).getTime();
+        const start = new Date(
+          base.getFullYear(),
+          base.getMonth(),
+          base.getDate()
+        ).getTime();
         const end = start + 86400000;
         return ts >= start && ts < end;
       }
@@ -180,7 +187,8 @@ export default function Expenses() {
       const nota = (r.nota || "").toLowerCase();
       const catOk = category === "ALL" || r.categoria === category;
       const qOk = !q || concepto.includes(q) || nota.includes(q);
-      const fecha = r.creado_en?.toDate?.() || (r.creado_en ? new Date(r.creado_en) : null);
+      const fecha =
+        r.creado_en?.toDate?.() || (r.creado_en ? new Date(r.creado_en) : null);
       return catOk && qOk && inPreset(fecha);
     });
   }, [rows, query, category, preset]);
@@ -201,7 +209,9 @@ export default function Expenses() {
       // (opcional) también podríamos despachar un evento global si hay otros widgets
       // window.dispatchEvent(new CustomEvent("expense:deleted", { detail: { id: toDelete.id } }));
     } catch (e) {
-      toast.error("Error al eliminar", { description: e?.message || String(e) });
+      toast.error("Error al eliminar", {
+        description: e?.message || String(e),
+      });
     } finally {
       setToDelete(null);
     }
@@ -211,7 +221,9 @@ export default function Expenses() {
   function shareExpenses() {
     const detalles = filtered
       .map((r, i) => {
-        const lineaBase = `${i + 1}. ${r.concepto || "—"} · ${fmt.format(Number(r.monto) || 0)}`;
+        const lineaBase = `${i + 1}. ${r.concepto || "—"} · ${fmt.format(
+          Number(r.monto) || 0
+        )}`;
         const cat = r.categoria ? ` · ${r.categoria}` : "";
         return lineaBase + cat;
       })
@@ -266,24 +278,28 @@ export default function Expenses() {
             </div>
           </div>
           {/* desktop: CTA nuevo via ruta */}
-          <div className="hidden md:flex items-center justify-end">
-            <button
-              onClick={goNew}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold shadow-sm"
-            >
-              <Plus size={16} /> Registrar gasto
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="hidden md:flex items-center justify-end">
+              <button
+                onClick={goNew}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold shadow-sm"
+              >
+                <Plus size={16} /> Registrar gasto
+              </button>
+            </div>
+          )}
 
           {/* móvil: CTA nuevo + FAB */}
-          <div className="md:hidden">
-            <button
-              onClick={goNew}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold shadow-sm"
-            >
-              <Plus size={16} /> Registrar gasto
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="md:hidden">
+              <button
+                onClick={goNew}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold shadow-sm"
+              >
+                <Plus size={16} /> Registrar gasto
+              </button>
+            </div>
+          )}{isAdmin && (
           <div className="fixed bottom-6 right-6 md:hidden z-40">
             <button
               onClick={goNew}
@@ -293,13 +309,12 @@ export default function Expenses() {
             >
               <Plus size={22} />
             </button>
-          </div>
+          </div>)}
         </div>
 
         {/* filtros mínimos */}
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 mb-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-
             <div className="flex-1 flex flex-wrap items-center gap-2">
               <div className="relative w-full md:w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -392,14 +407,18 @@ export default function Expenses() {
                         {r.concepto}
                       </div>
                       <div className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        {dfmt.format(r.creado_en?.toDate?.() || new Date(r.creado_en))}
+                        {dfmt.format(
+                          r.creado_en?.toDate?.() || new Date(r.creado_en)
+                        )}
                       </div>
                       <div className="mt-2 inline-flex items-center gap-2 text-[12px]">
                         <span className="rounded-full border px-2 py-0.5 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                           {r.categoria || "—"}
                         </span>
                         {r.nota && (
-                          <span className="text-slate-600 dark:text-slate-300">{r.nota}</span>
+                          <span className="text-slate-600 dark:text-slate-300">
+                            {r.nota}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -431,7 +450,9 @@ export default function Expenses() {
               ))}
             </AnimatePresence>
             {filtered.length === 0 && !loading && (
-              <li className="p-6 text-center text-slate-500 dark:text-slate-400">No hay gastos.</li>
+              <li className="p-6 text-center text-slate-500 dark:text-slate-400">
+                No hay gastos.
+              </li>
             )}
             <div ref={sentinelRef} />
           </ul>
@@ -446,7 +467,9 @@ export default function Expenses() {
                   <th className="p-3 font-semibold text-right">Monto</th>
                   <th className="p-3 font-semibold">Nota</th>
                   <th className="p-3 font-semibold">Fecha</th>
-                  {isAdmin && <th className="p-3 font-semibold text-right">Acciones</th>}
+                  {isAdmin && (
+                    <th className="p-3 font-semibold text-right">Acciones</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -459,7 +482,9 @@ export default function Expenses() {
                       exit={{ opacity: 0, y: -6 }}
                       className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/60 dark:hover:bg-slate-800/60"
                     >
-                      <td className="p-3 text-slate-800 dark:text-slate-100">{r.concepto}</td>
+                      <td className="p-3 text-slate-800 dark:text-slate-100">
+                        {r.concepto}
+                      </td>
                       <td className="p-3">
                         <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-200">
                           {r.categoria || "—"}
@@ -468,9 +493,13 @@ export default function Expenses() {
                       <td className="p-3 text-right tabular-nums text-slate-900 dark:text-slate-100">
                         {fmt.format(Number(r.monto) || 0)}
                       </td>
-                      <td className="p-3 text-slate-600 dark:text-slate-300">{r.nota || "—"}</td>
                       <td className="p-3 text-slate-600 dark:text-slate-300">
-                        {dfmt.format(r.creado_en?.toDate?.() || new Date(r.creado_en))}
+                        {r.nota || "—"}
+                      </td>
+                      <td className="p-3 text-slate-600 dark:text-slate-300">
+                        {dfmt.format(
+                          r.creado_en?.toDate?.() || new Date(r.creado_en)
+                        )}
                       </td>
                       {isAdmin && (
                         <td className="p-3 text-right">
@@ -529,7 +558,8 @@ export default function Expenses() {
                   Eliminar gasto
                 </h3>
                 <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                  Esta acción moverá el gasto a eliminado y no será visible en la lista.
+                  Esta acción moverá el gasto a eliminado y no será visible en
+                  la lista.
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
                   <button

@@ -1,5 +1,5 @@
 // Header.jsx — Menú móvil pro y limpio
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";  
 import { Link, NavLink, useParams } from "react-router-dom";
 import { useAuth } from "../../lib/AuthContext.jsx";
 import {
@@ -14,11 +14,33 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { twMerge } from "tailwind-merge";
-
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, getDoc } from "firebase/firestore";
 export default function Header({ title }) {
   const { campanaId } = useParams();
   const { logout } = useAuth();
   const [open, setOpen] = useState(false);
+  // ===== admin gate
+  const [adminChecked, setAdminChecked] = useState(false);
+  // ===== Admin gate reactivo a la sesión =====
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    const auth = getAuth();
+    const db = getFirestore();
+
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) return setIsAdmin(false);
+      try {
+        const snap = await getDoc(doc(db, "usuarios", u.uid));
+        setIsAdmin(snap.exists() && snap.data()?.rol === "admin");
+      } catch (e) {
+        if (import.meta.env.DEV) console.error("admin-check error", e);
+        setIsAdmin(false);
+      }
+    });
+
+    return () => unsub();
+  }, []);
 
   const baseLink =
     "inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition select-none";
@@ -83,11 +105,14 @@ export default function Header({ title }) {
 
           {/* Actions desktop */}
           <div className="hidden md:flex items-center gap-2">
-            <Link to={`/c/${campanaId}/lista/nueva`}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-teal-300/50 dark:focus:ring-teal-900/40"
-            >
-              <Plus size={16} /> Donación
-            </Link>
+            {isAdmin && (
+              <Link
+                to={`/c/${campanaId}/lista/nueva`}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-teal-300/50 dark:focus:ring-teal-900/40"
+              >
+                <Plus size={16} /> Donación
+              </Link>
+            )}
             <button
               onClick={logout}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-300/60 dark:focus:ring-slate-700/60"
@@ -175,13 +200,15 @@ export default function Header({ title }) {
                 </NavLink>
 
                 {/* Acción primaria separada */}
-                <Link
-                  onClick={() => setOpen(false)}
-                  to={`/c/${campanaId}/lista/nueva`}
-                  className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold w-full justify-center"
-                >
-                  <Plus size={16} /> Nueva donación
-                </Link>
+                {isAdmin && (
+                  <Link
+                    onClick={() => setOpen(false)}
+                    to={`/c/${campanaId}/lista/nueva`}
+                    className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold w-full justify-center"
+                  >
+                    <Plus size={16} /> Nueva donación
+                  </Link>
+                )}
 
                 <button
                   onClick={() => {

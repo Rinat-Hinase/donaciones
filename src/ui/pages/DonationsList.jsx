@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Outlet } from "react-router-dom";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, getDoc } from "firebase/firestore";
 
 import Header from "../components/Header.jsx";
-import { listDonations, deleteDonation } from "../../lib/firebase.js";
+import {
+  listDonationsPage,
+  getDonationsTotals,
+  deleteDonation,
+} from "../../lib/firebase.js";
 
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster, toast } from "sonner";
@@ -48,6 +52,7 @@ const PRESETS = [
   { id: "TODAY", label: "Hoy" },
   { id: "7D", label: "7 días" },
 ];
+
 function EmptyMobile({ onAdd }) {
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-center">
@@ -72,35 +77,32 @@ export default function DonationsList() {
   const { campanaId } = useParams();
   const nav = useNavigate();
 
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // ===== Auth / admin
   const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    const auth = getAuth();
+    const db = getFirestore();
 
-  // filtros UI
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) return setIsAdmin(false);
+      try {
+        const snap = await getDoc(doc(db, "usuarios", u.uid));
+        setIsAdmin(snap.exists() && snap.data()?.rol === "admin");
+      } catch (e) {
+        if (import.meta.env.DEV) console.error("admin-check error", e);
+        setIsAdmin(false);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // ===== Filtros UI
   const [q, setQ] = useState("");
   const [method, setMethod] = useState("ALL");
   const [range, setRange] = useState("ALL");
   const [methodOpen, setMethodOpen] = useState(false);
   const methodRef = useRef(null);
 
-  // eliminar
-  const [toDelete, setToDelete] = useState(null); // {id, nombre, monto}
-
-  // ===== Cargar rol
-  useEffect(() => {
-    (async () => {
-      try {
-        const uid = getAuth().currentUser?.uid;
-        if (!uid) return;
-        const snap = await getDoc(doc(getFirestore(), "usuarios", uid));
-        setIsAdmin(snap.exists() && snap.data()?.rol === "admin");
-      } catch {
-        setIsAdmin(false);
-      }
-    })();
-  }, []);
-
-  // ===== Click fuera para cerrar dropdown método
   useEffect(() => {
     function onDown(e) {
       if (methodRef.current && !methodRef.current.contains(e.target))
@@ -117,28 +119,86 @@ export default function DonationsList() {
     };
   }, []);
 
-  // ===== Cargar donaciones (filtrado básico por nombre desde backend)
-  async function load() {
-    setLoading(true);
+  // ===== Paginación
+  const PAGE_SIZE = 10;
+  const [pages, setPages] = useState([]); // Array<Donation[]> por página
+  const [cursor, setCursor] = useState(null); // último doc de la página
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Totales globales (afectados por filtros, pero NO por el paginado visual)
+  const [totalSum, setTotalSum] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Cargar una página
+  async function loadPage(first = false) {
+    if (first) {
+      setLoading(true);
+      setPages([]);
+      setCursor(null);
+      setHasMore(true);
+    } else {
+      if (!hasMore || loadingMore) return;
+      setLoadingMore(true);
+    }
+
     try {
-      const data = await listDonations({
+      const { items, nextCursor } = await listDonationsPage({
         campanaId,
-        qNameLower: q.trim().toLowerCase(),
+        pageSize: PAGE_SIZE,
+        cursor: first ? null : cursor,
       });
-      setRows(Array.isArray(data) ? data : []);
+
+      // Filtro por nombre (desde backend no hay índice para "contains", así que aquí)
+      const rowsPage = q.trim()
+        ? items.filter((r) =>
+            (r.donante_nombre_lower || "").includes(q.trim().toLowerCase())
+          )
+        : items;
+
+      setPages((prev) => (first ? [rowsPage] : [...prev, rowsPage]));
+      setCursor(nextCursor);
+      setHasMore(Boolean(nextCursor));
     } catch (e) {
-      toast.error("No se pudieron cargar las donaciones", {
-        description: e?.message || String(e),
-      });
+      if (import.meta.env.DEV) console.error(e);
+      toast.error("No se pudo cargar la lista");
     } finally {
-      setLoading(false);
+      if (first) setLoading(false);
+      else setLoadingMore(false);
     }
   }
+
+  // Recalcular totales globales (independientes del paginado visual)
+  async function recomputeTotals() {
+    try {
+      const { sum, count } = await getDonationsTotals({
+        campanaId,
+        qNameLower: q.trim().toLowerCase(),
+        method,
+        range,
+      });
+      setTotalSum(sum);
+      setTotalCount(count);
+    } catch (e) {
+      if (import.meta.env.DEV) console.error(e);
+    }
+  }
+
+  // Cargas iniciales y cuando cambia búsqueda por nombre (reset de páginas)
   useEffect(() => {
-    load();
+    loadPage(true);
+    recomputeTotals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campanaId, q]);
-  // Escuchar eventos globales para crear/editar: toast + recarga
+
+  // Si cambian método o rango, sólo recalculamos totales (la lista visual sigue paginada)
+  useEffect(() => {
+    recomputeTotals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [method, range]);
+
+  // Llamados globales para refrescar tras crear/editar
   useEffect(() => {
     function onCreated(e) {
       const nombre = e?.detail?.nombre || "—";
@@ -146,7 +206,8 @@ export default function DonationsList() {
       toast.success("Donación registrada", {
         description: `${nombre} · ${money.format(monto)}`,
       });
-      load();
+      loadPage(true);
+      recomputeTotals();
     }
     function onUpdated(e) {
       const nombre = e?.detail?.nombre || "—";
@@ -154,7 +215,8 @@ export default function DonationsList() {
       toast.success("Donación actualizada", {
         description: `${nombre} · ${money.format(monto)}`,
       });
-      load();
+      loadPage(true);
+      recomputeTotals();
     }
     window.addEventListener("donation:created", onCreated);
     window.addEventListener("donation:updated", onUpdated);
@@ -163,10 +225,13 @@ export default function DonationsList() {
       window.removeEventListener("donation:updated", onUpdated);
     };
   }, []);
-  // ===== Filtrado en cliente (método + rango de fechas)
+
+  // Lista "aplanada" de lo cargado hasta ahora
+  const flat = useMemo(() => pages.flat(), [pages]);
+
+  // Filtrado visual adicional (método + rango)
   const filtered = useMemo(() => {
     const now = Date.now();
-
     function inRange(d) {
       if (range === "ALL") return true;
       const ts = d?.getTime?.() ?? (d ? new Date(d).getTime() : 0);
@@ -184,28 +249,32 @@ export default function DonationsList() {
       if (range === "7D") return ts >= now - 7 * 24 * 60 * 60 * 1000;
       return true;
     }
-
-    return rows.filter((r) => {
-      const metOk =
-        method === "ALL" || (r.metodo || "").toLowerCase() === method;
-      const date =
-        r.creado_en?.toDate?.() || (r.creado_en ? new Date(r.creado_en) : null);
+    return flat.filter((r) => {
+      const metOk = method === "ALL" || (r.metodo || "").toLowerCase() === method;
+      const date = r.creado_en?.toDate?.() || (r.creado_en ? new Date(r.creado_en) : null);
       return metOk && inRange(date);
     });
-  }, [rows, method, range]);
+  }, [flat, method, range]);
 
-  // ===== Métricas
-  const total = useMemo(
-    () => filtered.reduce((s, r) => s + (Number(r.monto) || 0), 0),
-    [filtered]
-  );
+  // Métricas UI (globales)
+  const total = useMemo(() => totalSum, [totalSum]);
+  const count = useMemo(() => totalCount, [totalCount]);
 
   // ===== Acciones
   async function confirmDelete() {
+    // Eliminado lógico
     if (!toDelete) return;
     try {
       await deleteDonation(toDelete.id);
-      setRows((prev) => prev.filter((r) => r.id !== toDelete.id));
+
+      // Sacar de la lista visible sin recargar todo
+      setPages((prev) =>
+        prev.map((pg) => pg.filter((r) => r.id !== toDelete.id))
+      );
+
+      // Recalcular totales globales
+      recomputeTotals();
+
       toast.success("Donación eliminada", {
         description: `${toDelete.nombre || "—"} · ${money.format(
           Number(toDelete.monto) || 0
@@ -224,40 +293,36 @@ export default function DonationsList() {
     if (filtered.length === 0) {
       const text = `Donaciones — Campaña ${campanaId}\nSin donaciones registradas.`;
       if (navigator.share) {
-        navigator
-          .share({ title: `Donaciones ${campanaId}`, text })
-          .catch(() => {});
+        navigator.share({ title: `Donaciones ${campanaId}`, text }).catch(() => {});
       } else {
         navigator.clipboard?.writeText(text);
         toast.success("Resumen copiado");
       }
       return;
     }
-    // Generar lista de donantes con monto
+
+    // Detalle de lo que (hasta ahora) está filtrado/visible
     const detalles = filtered
       .map(
-        (r, i) =>
-          `${i + 1}. ${r.donante_nombre || "—"} · ${money.format(
-            Number(r.monto) || 0
-          )}`
+        (r, i) => `${i + 1}. ${r.donante_nombre || "—"} · ${money.format(Number(r.monto) || 0)}`
       )
       .join("\n");
 
-    // Texto completo
     const text =
       `Donaciones — Campaña ${campanaId}\n` +
-      `Total: ${money.format(total)} · Registros: ${filtered.length}\n\n` +
-      `=== Detalle ===\n${detalles}`;
+      `Total: ${money.format(total)} · Registros: ${count}\n\n` +
+      `=== Detalle (vista actual) ===\n${detalles}`;
 
     if (navigator.share) {
-      navigator
-        .share({ title: `Donaciones ${campanaId}`, text })
-        .catch(() => {});
+      navigator.share({ title: `Donaciones ${campanaId}`, text }).catch(() => {});
     } else {
       navigator.clipboard?.writeText(text);
       toast.success("Resumen copiado con detalle");
     }
   }
+
+  // Estado de eliminación
+  const [toDelete, setToDelete] = useState(null); // {id, nombre, monto}
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B1220]">
@@ -267,7 +332,7 @@ export default function DonationsList() {
         {/* Resumen compacto */}
         <section className="grid grid-cols-2 gap-3 mb-4">
           <MiniMetric label="Total" value={money.format(total)} />
-          <MiniMetric label="Registros" value={String(filtered.length)} />
+          <MiniMetric label="Registros" value={String(count)} />
         </section>
 
         {/* Controles (mobile-first) */}
@@ -284,8 +349,9 @@ export default function DonationsList() {
               />
             </div>
 
-            {/* Method pills (dropdown compacto) */}
+            {/* Filtros */}
             <div className="flex items-center gap-2">
+              {/* Método */}
               <div className="relative" ref={methodRef}>
                 <button
                   type="button"
@@ -305,8 +371,7 @@ export default function DonationsList() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -6 }}
                       role="listbox"
-                      className="absolute z-50 mt-2 w-56 rounded-xl border border-slate-200 dark:border-slate-700 
-           bg-white dark:bg-slate-900 shadow-lg p-1 text-slate-800 dark:text-slate-100"
+                      className="absolute z-50 mt-2 w-56 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg p-1 text-slate-800 dark:text-slate-100"
                     >
                       {METHODS.map(({ id, label, icon: Icon }) => (
                         <button
@@ -319,9 +384,7 @@ export default function DonationsList() {
                           role="option"
                           aria-selected={method === id}
                           className={`w-full text-left px-3 py-2 rounded-lg text-sm inline-flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 ${
-                            method === id
-                              ? "bg-slate-100 dark:bg-slate-800"
-                              : ""
+                            method === id ? "bg-slate-100 dark:bg-slate-800" : ""
                           }`}
                         >
                           <Icon className="h-4 w-4" />
@@ -353,7 +416,7 @@ export default function DonationsList() {
                 ))}
               </div>
 
-              {/* Compartir resumen (ligero) */}
+              {/* Compartir resumen */}
               <button
                 onClick={shareList}
                 className="ml-auto inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
@@ -391,8 +454,7 @@ export default function DonationsList() {
 
                       {/* Método + Fecha */}
                       <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
-                        {r.metodo || "—"} ·{" "}
-                        {r.creado_en?.toDate?.()
+                        {r.metodo || "—"} · {r.creado_en?.toDate?.()
                           ? dateFmt.format(r.creado_en.toDate())
                           : r.creado_en
                           ? dateFmt.format(new Date(r.creado_en))
@@ -407,7 +469,7 @@ export default function DonationsList() {
                       )}
                     </div>
 
-                    {/* Monto + botón eliminar */}
+                    {/* Monto + acciones */}
                     <div className="text-right">
                       <div className="text-base font-semibold text-teal-700 dark:text-teal-300 tabular-nums">
                         {money.format(Number(r.monto) || 0)}
@@ -416,20 +478,14 @@ export default function DonationsList() {
                       {isAdmin && (
                         <div className="mt-2 flex items-center justify-end gap-2">
                           <button
-                            onClick={() =>
-                              nav(`/c/${campanaId}/lista/editar/${r.id}`)
-                            }
+                            onClick={() => nav(`/c/${campanaId}/lista/editar/${r.id}`)}
                             className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
                           >
                             <Pencil className="h-4 w-4" /> Editar
                           </button>
                           <button
                             onClick={() =>
-                              setToDelete({
-                                id: r.id,
-                                nombre: r.donante_nombre || "",
-                                monto: r.monto,
-                              })
+                              setToDelete({ id: r.id, nombre: r.donante_nombre || "", monto: r.monto })
                             }
                             className="inline-flex items-center gap-1.5 rounded-md border border-red-200/70 dark:border-red-900/40 text-red-700 dark:text-red-400 px-2.5 py-1.5 text-xs hover:bg-red-50/60 dark:hover:bg-red-950/30"
                           >
@@ -444,7 +500,7 @@ export default function DonationsList() {
           </AnimatePresence>
         </div>
 
-        {/* Tabla solo para md+ */}
+        {/* Tabla md+ */}
         <div className="hidden md:block overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
           <div className="max-h-[60vh] overflow-auto">
             <table className="w-full text-sm">
@@ -456,59 +512,34 @@ export default function DonationsList() {
                   <th className="p-3 font-semibold text-right">Monto</th>
                   <th className="p-3 font-semibold">Nota</th>
                   <th className="p-3 font-semibold">Fecha</th>
-                  {isAdmin && (
-                    <th className="p-3 font-semibold text-right">Acciones</th>
-                  )}
+                  {isAdmin && <th className="p-3 font-semibold text-right">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
                 {loading && <SkeletonRows cols={isAdmin ? 7 : 6} rows={6} />}
                 {!loading &&
                   filtered.map((r, i) => (
-                    <tr
-                      key={r.id}
-                      className="border-t border-slate-100 dark:border-slate-800"
-                    >
-                      <td className="p-3 text-slate-800 dark:text-slate-100">
-                        {i + 1}
-                      </td>
-                      <td className="p-3 text-slate-800 dark:text-slate-100">
-                        {r.donante_nombre || "—"}
-                      </td>
-                      <td className="p-3 text-slate-700 dark:text-slate-200">
-                        {r.metodo || "—"}
-                      </td>
-                      <td className="p-3 text-right tabular-nums text-teal-700 dark:text-teal-300">
-                        {money.format(Number(r.monto) || 0)}
-                      </td>
-                      <td className="p-3 text-slate-600 dark:text-slate-300">
-                        {r.nota || "—"}
-                      </td>
-                      <td className="p-3 text-slate-600 dark:text-slate-300">
-                        {r.creado_en?.toDate?.()
-                          ? dateFmt.format(r.creado_en.toDate())
-                          : r.creado_en
-                          ? dateFmt.format(new Date(r.creado_en))
-                          : "—"}
-                      </td>
+                    <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="p-3 text-slate-800 dark:text-slate-100">{i + 1}</td>
+                      <td className="p-3 text-slate-800 dark:text-slate-100">{r.donante_nombre || "—"}</td>
+                      <td className="p-3 text-slate-700 dark:text-slate-200">{r.metodo || "—"}</td>
+                      <td className="p-3 text-right tabular-nums text-teal-700 dark:text-teal-300">{money.format(Number(r.monto) || 0)}</td>
+                      <td className="p-3 text-slate-600 dark:text-slate-300">{r.nota || "—"}</td>
+                      <td className="p-3 text-slate-600 dark:text-slate-300">{r.creado_en?.toDate?.()
+                        ? dateFmt.format(r.creado_en.toDate())
+                        : r.creado_en
+                        ? dateFmt.format(new Date(r.creado_en))
+                        : "—"}</td>
                       {isAdmin && (
                         <td className="p-3 text-right">
                           <button
-                            onClick={() =>
-                              nav(`/c/${campanaId}/lista/editar/${r.id}`)
-                            }
+                            onClick={() => nav(`/c/${campanaId}/lista/editar/${r.id}`)}
                             className="mr-2 inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-2.5 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
                           >
                             <Pencil className="h-4 w-4" /> Editar
                           </button>
                           <button
-                            onClick={() =>
-                              setToDelete({
-                                id: r.id,
-                                nombre: r.donante_nombre || "",
-                                monto: r.monto,
-                              })
-                            }
+                            onClick={() => setToDelete({ id: r.id, nombre: r.donante_nombre || "", monto: r.monto })}
                             className="inline-flex items-center gap-1.5 rounded-md border border-red-200/70 dark:border-red-900/40 text-red-700 dark:text-red-400 px-2.5 py-1.5 text-xs hover:bg-red-50/60 dark:hover:bg-red-950/30"
                           >
                             <Trash2 className="h-4 w-4" /> Eliminar
@@ -519,10 +550,7 @@ export default function DonationsList() {
                   ))}
                 {!loading && filtered.length === 0 && (
                   <tr>
-                    <td
-                      className="p-8 text-center text-slate-500 dark:text-slate-400"
-                      colSpan={isAdmin ? 7 : 6}
-                    >
+                    <td className="p-8 text-center text-slate-500 dark:text-slate-400" colSpan={isAdmin ? 7 : 6}>
                       Sin donaciones.
                     </td>
                   </tr>
@@ -531,6 +559,20 @@ export default function DonationsList() {
             </table>
           </div>
         </div>
+
+        {/* Mostrar más */}
+        {!loading && hasMore && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => loadPage(false)}
+              disabled={loadingMore}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {loadingMore ? "Cargando..." : "Mostrar más"}
+            </button>
+          </div>
+        )}
 
         {/* Modal eliminar */}
         <AnimatePresence>
@@ -548,13 +590,15 @@ export default function DonationsList() {
       </main>
 
       {/* FAB móvil para agregar donación */}
-      <button
-        onClick={() => nav(`/c/${campanaId}/lista/nueva`)}
-        className="md:hidden fixed bottom-5 right-5 rounded-full bg-teal-700 hover:bg-teal-800 text-white p-4 shadow-lg"
-        aria-label="Agregar donación"
-      >
-        <Plus className="h-6 w-6" />
-      </button>
+      {isAdmin && (
+        <button
+          onClick={() => nav(`/c/${campanaId}/lista/nueva`)}
+          className="md:hidden fixed bottom-5 right-5 rounded-full bg-teal-700 hover:bg-teal-800 text-white p-4 shadow-lg"
+          aria-label="Agregar donación"
+        >
+          <Plus className="h-6 w-6" />
+        </button>
+      )}
 
       <Toaster richColors position="top-right" />
       <Outlet />
@@ -567,12 +611,8 @@ export default function DonationsList() {
 function MiniMetric({ label, value }) {
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-      <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        {label}
-      </div>
-      <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-        {value}
-      </div>
+      <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">{value}</div>
     </div>
   );
 }
@@ -581,10 +621,7 @@ function ListSkeleton({ count = 4 }) {
   return (
     <>
       {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3"
-        >
+        <div key={i} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
           <div className="h-5 w-1/3 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
           <div className="mt-2 h-4 w-1/2 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
           <div className="mt-2 h-4 w-24 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
@@ -630,12 +667,8 @@ function ConfirmModal({ title, description, onCancel, onConfirm }) {
             <XCircle className="h-5 w-5" />
           </div>
           <div className="flex-1">
-            <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              {title}
-            </h3>
-            <p className="mt-1 whitespace-pre-line text-sm text-slate-600 dark:text-slate-300">
-              {description}
-            </p>
+            <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
+            <p className="mt-1 whitespace-pre-line text-sm text-slate-600 dark:text-slate-300">{description}</p>
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
