@@ -1,11 +1,12 @@
-// Dashboard.jsx – versión mobile‑first pro
+// Dashboard.jsx – versión mobile-first pro
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Trophy, Medal, Users } from "lucide-react";
+import { Trophy, Medal, Users, Share2 } from "lucide-react";
+
 const campaignNames = {
-  default: "Papá Raúl"
+  default: "Papá Raúl",
 };
 
 import Header from "../components/Header.jsx";
@@ -14,6 +15,11 @@ import { listDonations, getExpensesTotal } from "../../lib/firebase.js";
 const fmt = new Intl.NumberFormat("es-MX", {
   style: "currency",
   currency: "MXN",
+});
+const dFmt = new Intl.DateTimeFormat("es-MX", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
 });
 
 // Helpers visuales mobile-first
@@ -30,26 +36,31 @@ export default function Dashboard() {
   const displayName = campaignNames[campanaId] || campanaId;
 
   useEffect(() => {
-  (async () => {
-    setLoading(true);
-    try {
-      const [donData, gastosTotal] = await Promise.all([
-        listDonations({ campanaId, max: 500 }),
-        getExpensesTotal({ campanaId, pageSize: 200 }),
-      ]);
-      setRows(donData);
-      setExpTotal(gastosTotal);
-    } catch (e) {
-      toast.error("No se pudieron cargar donaciones/gastos");
-      if (import.meta.env.DEV) console.error(e);
-    } finally { setLoading(false); }
-  })();
-}, [campanaId]);
+    (async () => {
+      setLoading(true);
+      try {
+        const [donData, gastosTotal] = await Promise.all([
+          listDonations({ campanaId, max: 500 }),
+          getExpensesTotal({ campanaId, pageSize: 200 }),
+        ]);
+        setRows(donData);
+        setExpTotal(gastosTotal);
+      } catch (e) {
+        toast.error("No se pudieron cargar donaciones/gastos");
+        if (import.meta.env.DEV) console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [campanaId]);
 
   // KPIs
-  const total = useMemo(() => rows.reduce((s, r) => s + (Number(r.monto) || 0), 0), [rows]);
-const count = rows.length;
-const balance = useMemo(() => total - expTotal, [total, expTotal]);
+  const total = useMemo(
+    () => rows.reduce((s, r) => s + (Number(r.monto) || 0), 0),
+    [rows]
+  );
+  const count = rows.length;
+  const balance = useMemo(() => total - expTotal, [total, expTotal]);
 
   // Top 3 donantes (por suma total, agrupando por nombre en minúsculas)
   const top3 = useMemo(() => {
@@ -72,10 +83,115 @@ const balance = useMemo(() => total - expTotal, [total, expTotal]);
     return [...map.values()].sort((a, b) => b.total - a.total).slice(0, 3);
   }, [rows]);
 
+  // ===== Compartir Dashboard (detallado)
+  function shareDashboard() {
+  // Agrupar por persona y sumar apoyos
+  const agregados = (() => {
+    const map = new Map();
+    for (const r of rows) {
+      const key =
+        (
+          r.donante_nombre_lower ||
+          (r.donante_nombre || "").toLowerCase() ||
+          "anónimo"
+        ).trim() || "anónimo";
+      const nombre = r.donante_nombre || "Anónimo";
+      const prev = map.get(key) || { nombre, total: 0 };
+      map.set(key, { nombre, total: prev.total + (Number(r.monto) || 0) });
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  })();
+
+  const top3 = agregados.slice(0, 3);
+  const otros = agregados.slice(3);
+
+  // Últimas 3 donaciones con fecha (seguras por timestamp/fecha)
+  function toDateSafe(v) {
+    if (!v) return null;
+    return v.toDate?.() ? v.toDate() : new Date(v);
+  }
+  const ultimas3 = [...rows]
+    .sort((a, b) => {
+      const ta = toDateSafe(a.creado_en)?.getTime() || 0;
+      const tb = toDateSafe(b.creado_en)?.getTime() || 0;
+      return tb - ta; // más recientes primero
+    })
+    .slice(0, 3);
+
+  // Construir el "ticket" en monoespaciado con bloque ```
+  const lines = [
+    "PAPÁ RAÚL — CORTE",
+    `Entró (apoyos) : ${fmt.format(total)}`,
+    `Salió (gastos) : ${fmt.format(expTotal)}`,
+    "-----------------------------",
+    `LO QUE QUEDA     ${fmt.format(total - expTotal)}`,
+    "",
+    "Top 3 mayores apoyos:",
+    ...(top3.length
+      ? top3.map(
+          (d, i) =>
+            `${i + 1}) ${d.nombre.padEnd(10, " ")} ${fmt.format(d.total)}`
+        )
+      : ["—"]),
+    ...(otros.length
+      ? [
+          "",
+          "Otros donadores:",
+          ...otros.map(
+            (d) => `• ${d.nombre.padEnd(12, " ")} ${fmt.format(d.total)}`
+          ),
+        ]
+      : []),
+    ...(ultimas3.length
+      ? [
+          "",
+          "Últimas 3 donaciones:",
+          ...ultimas3.map((r, i) => {
+            const fecha = toDateSafe(r.creado_en)
+              ? dFmt.format(toDateSafe(r.creado_en))
+              : "—";
+            const nombre = r.donante_nombre || "Anónimo";
+            const monto = fmt.format(Number(r.monto) || 0);
+            // ejemplo: "1) Marisol         $50.00  — 22/08/2025"
+            return `${i + 1}) ${nombre.padEnd(14, " ")} ${monto}  — ${fecha}`;
+          }),
+        ]
+      : []),
+  ];
+
+  const text = "```\n" + lines.join("\n") + "\n```";
+
+  if (navigator.share) {
+    navigator.share({ title: `Resumen ${displayName}`, text }).catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(text);
+    toast.success("Resumen copiado");
+  }
+}
+
+
   return (
     <div>
       <Header title={`Tablero — ${displayName}`} />
       <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
+        {/* Barra de acción superior (mobile-first) */}
+        <div className="sticky top-0 z-30 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 dark:supports-[backdrop-filter]:bg-slate-950/60">
+          <div className="container px-3 sm:px-4 py-2 flex justify-end">
+            <button
+              onClick={shareDashboard}
+              className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium
+                         bg-teal-600 text-white shadow-lg hover:bg-teal-700 active:scale-[.99]
+                         focus:outline-none focus:ring-4 focus:ring-teal-300/50
+                         dark:focus:ring-teal-900/40"
+              aria-label="Compartir resumen"
+              title="Compartir resumen"
+            >
+              <Share2 className="h-4 w-4" />
+              Compartir
+            </button>
+          </div>
+        </div>
+
         <div className="container px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
           {/* TOP 3 Donantes — versión compacta */}
           <motion.section
@@ -87,7 +203,7 @@ const balance = useMemo(() => total - expTotal, [total, expTotal]);
             <div className="flex items-center gap-2 mb-2">
               <Trophy className="text-amber-500 w-4 h-4" />
               <h3 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-50">
-                Top 3 donantes
+                Top 3 apoyos
               </h3>
             </div>
 

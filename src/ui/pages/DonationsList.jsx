@@ -47,6 +47,25 @@ const PRESETS = [
   { id: "TODAY", label: "Hoy" },
   { id: "7D", label: "7 días" },
 ];
+function EmptyMobile({ onAdd }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-center">
+      <div className="text-base font-semibold text-slate-900 dark:text-slate-50">
+        Sin donaciones
+      </div>
+      <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        Cuando registres la primera, aparecerá aquí.
+      </div>
+      <button
+        onClick={onAdd}
+        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 text-sm"
+      >
+        <Plus className="h-4 w-4" />
+        Agregar donación
+      </button>
+    </div>
+  );
+}
 
 export default function DonationsList() {
   const { campanaId } = useParams();
@@ -105,7 +124,7 @@ export default function DonationsList() {
         campanaId,
         qNameLower: q.trim().toLowerCase(),
       });
-      setRows(data);
+      setRows(Array.isArray(data) ? data : []);
     } catch (e) {
       toast.error("No se pudieron cargar las donaciones", {
         description: e?.message || String(e),
@@ -177,31 +196,43 @@ export default function DonationsList() {
   }
 
   function shareList() {
-  // Generar lista de donantes con monto
-  const detalles = filtered
-    .map(
-      (r, i) =>
-        `${i + 1}. ${r.donante_nombre || "—"} · ${money.format(
-          Number(r.monto) || 0
-        )}`
-    )
-    .join("\n");
+    if (filtered.length === 0) {
+      const text = `Donaciones — Campaña ${campanaId}\nSin donaciones registradas.`;
+      if (navigator.share) {
+        navigator
+          .share({ title: `Donaciones ${campanaId}`, text })
+          .catch(() => {});
+      } else {
+        navigator.clipboard?.writeText(text);
+        toast.success("Resumen copiado");
+      }
+      return;
+    }
+    // Generar lista de donantes con monto
+    const detalles = filtered
+      .map(
+        (r, i) =>
+          `${i + 1}. ${r.donante_nombre || "—"} · ${money.format(
+            Number(r.monto) || 0
+          )}`
+      )
+      .join("\n");
 
-  // Texto completo
-  const text = `Donaciones — Campaña ${campanaId}\n` +
-    `Total: ${money.format(total)} · Registros: ${filtered.length}\n\n` +
-    `=== Detalle ===\n${detalles}`;
+    // Texto completo
+    const text =
+      `Donaciones — Campaña ${campanaId}\n` +
+      `Total: ${money.format(total)} · Registros: ${filtered.length}\n\n` +
+      `=== Detalle ===\n${detalles}`;
 
-  if (navigator.share) {
-    navigator
-      .share({ title: `Donaciones ${campanaId}`, text })
-      .catch(() => {});
-  } else {
-    navigator.clipboard?.writeText(text);
-    toast.success("Resumen copiado con detalle");
+    if (navigator.share) {
+      navigator
+        .share({ title: `Donaciones ${campanaId}`, text })
+        .catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(text);
+      toast.success("Resumen copiado con detalle");
+    }
   }
-}
-
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B1220]">
@@ -313,7 +344,10 @@ export default function DonationsList() {
           {/* Cards móviles */}
           <AnimatePresence initial={false}>
             {loading && <ListSkeleton count={4} />}
-            {!loading && filtered.length === 0 && <EmptyMobile />}
+            {!loading && filtered.length === 0 && (
+              <EmptyMobile onAdd={() => nav(`/c/${campanaId}/nueva`)} />
+            )}
+
             {!loading &&
               filtered.map((r) => (
                 <motion.div
