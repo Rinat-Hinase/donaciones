@@ -85,6 +85,17 @@ export default function Dashboard() {
 
   // ===== Compartir Dashboard (detallado)
   function shareDashboard() {
+  // Formateadores
+  const num = new Intl.NumberFormat("es-MX", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const dFmt = new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+
   // Agrupar por persona y sumar apoyos
   const agregados = (() => {
     const map = new Map();
@@ -105,7 +116,7 @@ export default function Dashboard() {
   const top3 = agregados.slice(0, 3);
   const otros = agregados.slice(3);
 
-  // Últimas 3 donaciones con fecha (seguras por timestamp/fecha)
+  // Últimas 3 donaciones con fecha
   function toDateSafe(v) {
     if (!v) return null;
     return v.toDate?.() ? v.toDate() : new Date(v);
@@ -114,46 +125,43 @@ export default function Dashboard() {
     .sort((a, b) => {
       const ta = toDateSafe(a.creado_en)?.getTime() || 0;
       const tb = toDateSafe(b.creado_en)?.getTime() || 0;
-      return tb - ta; // más recientes primero
+      return tb - ta;
     })
     .slice(0, 3);
 
-  // Construir el "ticket" en monoespaciado con bloque ```
+  const medals = ["🥇", "🥈", "🥉"];
+
   const lines = [
     "PAPÁ RAÚL — CORTE",
-    `Entró (apoyos) : ${fmt.format(total)}`,
-    `Salió (gastos) : ${fmt.format(expTotal)}`,
+    `Entró (apoyos) : $${num.format(total)}`,
+    `Salió (gastos) : $${num.format(expTotal)}`,
     "-----------------------------",
-    `LO QUE QUEDA     ${fmt.format(total - expTotal)}`,
-    "",
-    "Top 3 mayores apoyos:",
+    `🟢 Lo que queda: $${num.format(total - expTotal)}`,
+    "────────────────────",
+    "Top 3 apoyos:",
     ...(top3.length
       ? top3.map(
-          (d, i) =>
-            `${i + 1}) ${d.nombre.padEnd(10, " ")} ${fmt.format(d.total)}`
+          (d, i) => `${medals[i] || "•"} ${d.nombre} — $${num.format(d.total)}`
         )
       : ["—"]),
     ...(otros.length
       ? [
-          "",
+          "────────────────────",
           "Otros donadores:",
-          ...otros.map(
-            (d) => `• ${d.nombre.padEnd(12, " ")} ${fmt.format(d.total)}`
-          ),
+          ...otros.map((d) => `• ${d.nombre} — $${num.format(d.total)}`),
         ]
       : []),
     ...(ultimas3.length
       ? [
-          "",
-          "Últimas 3 donaciones:",
-          ...ultimas3.map((r, i) => {
+          "────────────────────",
+          "Últimos 3 apoyos:",
+          ...ultimas3.flatMap((r, i) => {
             const fecha = toDateSafe(r.creado_en)
               ? dFmt.format(toDateSafe(r.creado_en))
               : "—";
             const nombre = r.donante_nombre || "Anónimo";
-            const monto = fmt.format(Number(r.monto) || 0);
-            // ejemplo: "1) Marisol         $50.00  — 22/08/2025"
-            return `${i + 1}) ${nombre.padEnd(14, " ")} ${monto}  — ${fecha}`;
+            const monto = `$${num.format(Number(r.monto) || 0)}`;
+            return [`${i + 1}) ${nombre}`, `   ${monto}  📅 ${fecha}`];
           }),
         ]
       : []),
